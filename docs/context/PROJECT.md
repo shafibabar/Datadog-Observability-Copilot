@@ -14,7 +14,7 @@ An AI-powered **Observability Copilot**: a backend-hero reasoning layer that tur
 
 ## Approved tech stack
 - **Backend:** Python + FastAPI. **Reasoning:** Anthropic SDK directly (no LangChain). **UI:** single lightweight chat page served by FastAPI (HTML/JS + SSE), Claude/ChatGPT-style, thin client over a strong backend. **Workspace state:** SQLite (append-only history).
-- Deps (free, permissive): fastapi, uvicorn, anthropic, httpx, pydantic, python-dotenv, jinja2.
+- Deps (free, permissive): fastapi, uvicorn, anthropic, httpx, pydantic, python-dotenv. (Jinja2 dropped — the page is static; see DECISIONS.)
 - **Models (cost-conscious):** Haiku for routine extraction passes, Sonnet for deep reasoning/narrative. Never silently use a pricier model.
 
 ## Hard constraints
@@ -28,11 +28,12 @@ An AI-powered **Observability Copilot**: a backend-hero reasoning layer that tur
 3. Continue from the current gate noted in `STATE.md`. Update the context files as you work; provide exact commit commands at session end.
 
 ## How to run (local)
+Full copy-paste instructions for a non-developer live in **`README.md`** (the authoritative run guide). In short:
 ```
-python -m venv .venv
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env                 # then edit .env with your keys
-uvicorn app.main:app --reload
+cp .env.example .env                 # then edit .env, add ANTHROPIC_API_KEY
+python -m uvicorn app.main:app --port 8000
 ```
-Then open http://127.0.0.1:8000 . Runs with no keys (mock/placeholder); add keys to enable real reasoning / live Datadog.
+Then open http://127.0.0.1:8000 . The app starts without a key (chat reports it isn't configured); add `ANTHROPIC_API_KEY` to enable real reasoning, and optionally Datadog keys for the live source. Verified booting via smoke test (2026-06-26).
