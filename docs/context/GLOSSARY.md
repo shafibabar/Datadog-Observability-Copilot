@@ -15,7 +15,7 @@ support · sre · swe · pm · leadership. Each = config of which concerns to su
 Joins DataSource + ReasoningEngine + Workspace into the chat loop. `ask()` = investigate + append a Workspace snapshot (living doc grows); `rerender()` = re-render latest snapshot through a new persona, no new reasoning. Every reply ships its evidence catalog.
 
 ## Artifacts (registry-driven transforms over workspace state)
-Incident Summary (Iter 0) · Executive Briefing · Technical Investigation Report · Customer Communication Draft · Post-Incident Report · Runbook Recommendation (confidence-gated).
+`app/artifacts.py` `REGISTRY` of `ArtifactSpec` → `ArtifactDocument` (typed sections + `to_markdown()`). Pure transform over the Investigation — generating one makes no LLM call. **Incident Summary** built (Iter 0): summary · severity (peak timeline event) · timeline · likely cause (highest-confidence hypothesis) · recommended next steps · outstanding questions. Deferred: Executive Briefing · Technical Investigation Report · Customer Communication Draft · Post-Incident Report · Runbook Recommendation (confidence-gated).
 
 ## Data
 - **DataSource** — interface over telemetry. Adapters: **ReplayAdapter** (scripted synthetic incident) and **LiveDatadogAdapter** (read-only Datadog REST).

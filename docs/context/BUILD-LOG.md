@@ -30,3 +30,10 @@ Running narrative of how the solution came together: what was fast, what was har
 - **Cost-conscious by construction:** persona rendering is deterministic composition over the structured Investigation — no second LLM pass for re-framing. The only spend is the one investigation per genuine question.
 - **Graceful keyless degradation:** the session builds lazily; with no `ANTHROPIC_API_KEY` the chat returns a friendly "not configured" message instead of crashing, so the whole suite still runs offline and a non-dev can boot the app before placing keys.
 - **Next:** the Incident Summary artifact (registry-driven transform over Workspace state), then README run instructions → Iteration 0 complete.
+
+## 2026-06-26 — Incident Summary artifact (operational output)
+- **Human judgment / direction:** Human said "build the Incident Summary artifact next."
+- **AI did:** Added `app/artifacts.py` — a registry of `ArtifactSpec`s producing an `ArtifactDocument` (typed sections + `to_markdown()`), wired `CopilotSession.artifact()`, `/api/artifact`, and a "Generate Incident Summary" UI button. 11 specs test-first; full suite **82/82**, zero regressions.
+- **The payoff of the shared Workspace is now visible:** the artifact is a *pure transform* over the same Investigation the chat already produced — a test asserts generating it makes **zero** new LLM calls. Same understanding, reshaped for incident responders, no manual rewriting (exactly §5.10's thesis).
+- **Honest reasoning carried through:** the summary picks the *highest-confidence* hypothesis (a test proves the LOW-confidence decoy is excluded), states that confidence, derives severity from the timeline's peak event, and surfaces outstanding questions — it never overstates.
+- **Iteration 0 status:** all build items complete; only the README run-instructions remain for the definition of done. The full demo narrative (dashboard/chat → health → changes → timeline → likely cause → evidence → persona switch → generated artifact, all from the living Workspace) is now achievable end-to-end with a key.

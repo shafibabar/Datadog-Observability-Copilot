@@ -105,3 +105,17 @@ def test_chat_empty_message_rerenders_persona(wired_session):
     r = client.post("/api/chat", json={"message": "", "persona": "leadership"})
     assert r.status_code == 200
     assert r.json()["persona"] == "leadership"
+
+
+def test_artifact_endpoint_generates_incident_summary(wired_session):
+    client.post("/api/chat", json={"message": "Why slow?", "persona": "sre"})
+    r = client.post("/api/artifact", json={"key": "incident_summary"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["artifact"]["key"] == "incident_summary"
+    assert "Checkout latency rose" in data["markdown"]
+
+
+def test_artifact_endpoint_rejects_unknown_key(wired_session):
+    r = client.post("/api/artifact", json={"key": "nope"})
+    assert r.status_code == 400

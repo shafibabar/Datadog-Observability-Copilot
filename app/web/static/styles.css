@@ -121,3 +121,15 @@ body {
   padding-left: 18px;
 }
 .evidence li { margin: 4px 0; opacity: 0.9; }
+
+/* Header ghost button (artifact generation) */
+.controls button.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: inherit;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.controls button.ghost:hover { border-color: var(--accent); }

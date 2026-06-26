@@ -16,6 +16,7 @@ evidence" is a first-class, always-available action (kickoff §5.8/§6.7).
 """
 from __future__ import annotations
 
+from app.artifacts import render_artifact
 from app.personas import get_persona, render
 from app.reasoning.engine import ReasoningEngine
 from app.telemetry.base import DataSource
@@ -55,6 +56,15 @@ class CopilotSession:
         if self._store.latest(self.workspace_id) is None:
             return self.ask("", persona)
         return self._view(persona)
+
+    def artifact(self, key: str) -> dict:
+        """Serialize an operational artifact from the latest snapshot (a pure
+        transform — no new reasoning). Investigates first if nothing exists yet."""
+        if self._store.latest(self.workspace_id) is None:
+            self.ask("", "sre")
+        snapshot = self._store.latest(self.workspace_id)
+        doc = render_artifact(key, snapshot.investigation, incident_id=self._incident_id)
+        return {"artifact": doc.model_dump(), "markdown": doc.to_markdown()}
 
     def _view(self, persona_key: str) -> dict:
         snapshot = self._store.latest(self.workspace_id)

@@ -76,6 +76,23 @@ def chat(req: ChatRequest) -> JSONResponse:
     return JSONResponse(result)
 
 
+class ArtifactRequest(BaseModel):
+    key: str = "incident_summary"
+
+
+@app.post("/api/artifact")
+def artifact(req: ArtifactRequest) -> JSONResponse:
+    session = _get_session()
+    if session is None:
+        return JSONResponse(
+            {"error": "Claude isn't configured.", "configured": False}, status_code=503
+        )
+    try:
+        return JSONResponse(session.artifact(req.key))
+    except KeyError:
+        return JSONResponse({"error": f"Unknown artifact: {req.key!r}"}, status_code=400)
+
+
 @app.get("/")
 def index() -> FileResponse:
     # The page is fully static (no server-side templating), so serve it directly.

@@ -81,6 +81,25 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
+// Generate the Incident Summary artifact — a transform over the current
+// investigation state, rendered as markdown into the conversation.
+const genSummaryBtn = document.getElementById("gen-summary");
+genSummaryBtn.addEventListener("click", async () => {
+  const bubble = addMessage("assistant", "Generating Incident Summary…");
+  try {
+    const r = await fetch("/api/artifact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "incident_summary" }),
+    });
+    const data = await r.json();
+    bubble.textContent = data.markdown ?? data.error ?? "(no artifact)";
+    chat.scrollTop = chat.scrollHeight;
+  } catch {
+    bubble.textContent = "Something went wrong generating the artifact.";
+  }
+});
+
 // Switching persona re-frames the existing investigation (same facts, new lens)
 // via an empty-message re-render — no new reasoning pass.
 personaSel.addEventListener("change", async () => {

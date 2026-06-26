@@ -103,3 +103,20 @@ def test_rerender_with_no_prior_investigation_runs_one():
     assert llm.calls == 1
     assert store.latest(session.workspace_id) is not None
     assert result["persona"] == "pm"
+
+
+def test_artifact_serializes_from_latest_snapshot_without_calling_llm():
+    session, llm, _store, _ = build_session()
+    session.ask("Why is checkout slow?", "sre")
+    assert llm.calls == 1
+    result = session.artifact("incident_summary")
+    assert llm.calls == 1                       # artifact is a transform, not new reasoning
+    assert result["artifact"]["key"] == "incident_summary"
+    assert "Checkout latency rose" in result["markdown"]
+
+
+def test_artifact_with_no_prior_investigation_runs_one():
+    session, llm, _store, _ = build_session()
+    result = session.artifact("incident_summary")
+    assert llm.calls == 1
+    assert result["artifact"]["key"] == "incident_summary"
