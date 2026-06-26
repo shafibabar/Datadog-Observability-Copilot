@@ -1,10 +1,11 @@
-"""Tests for the FastAPI app surface (app/main.py)."""
+"""Tests for the FastAPI app surface (app/main.py): status, the conversation
+API, keyless degradation, and lazy service construction."""
 import json
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.copilot import CopilotSession
+from app.copilot import Copilot
 from app.main import app
 from app.reasoning.engine import ReasoningEngine
 from app.reasoning.evidence import build_evidence_catalog
@@ -23,9 +24,9 @@ class _FakeLLM:
 
 
 @pytest.fixture
-def wired_session():
-    """Inject a fully offline CopilotSession (fake LLM + replay) into the app,
-    then tear it down so other tests see the keyless default path."""
+def wired():
+    """Inject a fully offline Copilot (fake LLM + replay) into the app, then tear
+    it down so other tests see the keyless default path."""
     source = ReplayAdapter()
     catalog, _ = build_evidence_catalog(source)
     valid_id = next(iter(catalog))
@@ -39,34 +40,27 @@ def wired_session():
         "unknowns": [],
     }
     engine = ReasoningEngine(source, _FakeLLM(payload))
-    session = CopilotSession(source, engine, WorkspaceStore(":memory:"), incident_id="t")
-    app.state.session = session
+    app.state.copilot = Copilot(source, engine, WorkspaceStore(":memory:"), incident_id="t")
     yield valid_id
-    app.state.session = None
+    app.state.copilot = None
 
+
+def _new_conversation() -> str:
+    return client.post("/api/conversations", json={}).json()["id"]
+
+
+# --- static surface --------------------------------------------------------
 
 def test_healthz_ok():
-    r = client.get("/healthz")
-    assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
+    assert client.get("/healthz").json() == {"status": "ok"}
 
 
 def test_status_endpoint_shape_and_secret_free():
-    r = client.get("/api/status")
-    assert r.status_code == 200
-    data = r.json()
-    for key in [
-        "data_source",
-        "anthropic_configured",
-        "datadog_configured",
-        "model_fast",
-        "model_deep",
-        "datadog_site",
-    ]:
+    data = client.get("/api/status").json()
+    for key in ["data_source", "anthropic_configured", "datadog_configured",
+                "model_fast", "model_deep", "datadog_site"]:
         assert key in data
-    # The endpoint must never expose raw secret material.
-    assert "api_key" not in data
-    assert "app_key" not in data
+    assert "api_key" not in data and "app_key" not in data
 
 
 def test_index_page_served():
@@ -75,63 +69,86 @@ def test_index_page_served():
     assert "Observability Copilot" in r.text
 
 
-def test_chat_echoes_persona():
-    r = client.post("/api/chat", json={"message": "hi", "persona": "pm"})
-    assert r.status_code == 200
-    data = r.json()
-    assert data["persona"] == "pm"
-    assert data.get("reply")
+# --- conversation API (wired) ----------------------------------------------
+
+def test_create_and_list_conversations(wired):
+    assert client.get("/api/conversations").json()["conversations"] == []
+    cid = _new_conversation()
+    convos = client.get("/api/conversations").json()["conversations"]
+    assert [c["id"] for c in convos] == [cid]
 
 
-def test_chat_defaults_to_sre_persona():
-    r = client.post("/api/chat", json={"message": "hi"})
-    assert r.status_code == 200
-    assert r.json()["persona"] == "sre"
-
-
-def test_chat_investigates_when_session_wired(wired_session):
-    valid_id = wired_session
-    r = client.post("/api/chat", json={"message": "Why is checkout slow?", "persona": "sre"})
+def test_chat_investigates_and_returns_live_workspace(wired):
+    valid_id = wired
+    cid = _new_conversation()
+    r = client.post(f"/api/conversations/{cid}/chat",
+                    json={"message": "Why is checkout slow?", "persona": "sre"})
     assert r.status_code == 200
     data = r.json()
     assert data["persona"] == "sre"
     assert "Checkout latency rose" in data["reply"]
     assert any(e["id"] == valid_id for e in data["evidence"])
+    assert data["workspace"]["has_investigation"] is True
+    assert data["workspace"]["sections"]
 
 
-def test_chat_empty_message_rerenders_persona(wired_session):
-    # Seed an investigation, then switch persona with an empty message → re-render.
-    client.post("/api/chat", json={"message": "Why slow?", "persona": "sre"})
-    r = client.post("/api/chat", json={"message": "", "persona": "leadership"})
+def test_messages_persist_and_reload(wired):
+    cid = _new_conversation()
+    client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})
+    convo = client.get(f"/api/conversations/{cid}").json()
+    assert [m["role"] for m in convo["messages"]] == ["user", "assistant"]
+    assert convo["title"].startswith("Why slow")
+
+
+def test_chat_empty_message_rerenders(wired):
+    cid = _new_conversation()
+    client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})
+    r = client.post(f"/api/conversations/{cid}/chat", json={"message": "", "persona": "leadership"})
     assert r.status_code == 200
     assert r.json()["persona"] == "leadership"
 
 
-def test_artifact_endpoint_generates_incident_summary(wired_session):
-    client.post("/api/chat", json={"message": "Why slow?", "persona": "sre"})
-    r = client.post("/api/artifact", json={"key": "incident_summary"})
+def test_artifact_endpoint_generates_incident_summary(wired):
+    cid = _new_conversation()
+    client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})
+    r = client.post(f"/api/conversations/{cid}/artifact", json={"key": "incident_summary"})
     assert r.status_code == 200
-    data = r.json()
-    assert data["artifact"]["key"] == "incident_summary"
-    assert "Checkout latency rose" in data["markdown"]
+    assert "Checkout latency rose" in r.json()["markdown"]
 
 
-def test_artifact_endpoint_rejects_unknown_key(wired_session):
-    r = client.post("/api/artifact", json={"key": "nope"})
+def test_artifact_endpoint_rejects_unknown_key(wired):
+    cid = _new_conversation()
+    r = client.post(f"/api/conversations/{cid}/artifact", json={"key": "nope"})
     assert r.status_code == 400
 
 
-def test_artifact_endpoint_unavailable_without_session():
-    # No wired session and no key in the test env → graceful 503, not a crash.
-    app.state.session = None
-    r = client.post("/api/artifact", json={"key": "incident_summary"})
-    assert r.status_code == 503
-    assert r.json()["configured"] is False
+def test_unknown_conversation_is_404(wired):
+    assert client.get("/api/conversations/nope").status_code == 404
+    assert client.post("/api/conversations/nope/chat",
+                       json={"message": "hi", "persona": "sre"}).status_code == 404
+    assert client.post("/api/conversations/nope/artifact",
+                       json={"key": "incident_summary"}).status_code == 404
 
 
-def test_session_is_lazily_built_and_cached(monkeypatch):
-    """When a key is configured, the first request builds the session from
-    settings and caches it on app.state for reuse."""
+# --- keyless degradation ---------------------------------------------------
+
+def test_listing_reports_unconfigured_without_key():
+    app.state.copilot = None
+    data = client.get("/api/conversations").json()
+    assert data["configured"] is False
+    assert data["conversations"] == []
+
+
+def test_mutating_endpoints_503_without_key():
+    app.state.copilot = None
+    assert client.post("/api/conversations", json={}).status_code == 503
+    assert client.post("/api/conversations/x/chat",
+                       json={"message": "hi"}).status_code == 503
+
+
+def test_copilot_is_lazily_built_and_cached(monkeypatch):
+    """With a key configured, the first request builds the service from settings
+    and caches it on app.state for reuse."""
     import app.main as main
 
     built = []
@@ -139,17 +156,15 @@ def test_session_is_lazily_built_and_cached(monkeypatch):
     def fake_build(_settings):
         built.append(1)
         source = ReplayAdapter()
-        catalog, _ = build_evidence_catalog(source)
-        vid = next(iter(catalog))
         engine = ReasoningEngine(source, _FakeLLM({
             "summary": "ok", "facts": [], "hypotheses": [],
             "recommendations": [], "unknowns": [],
         }))
-        return CopilotSession(source, engine, WorkspaceStore(":memory:"), incident_id="t")
+        return Copilot(source, engine, WorkspaceStore(":memory:"), incident_id="t")
 
-    monkeypatch.setattr(main, "build_default_session", fake_build)
-    main.app.state.session = None
-    client.post("/api/chat", json={"message": "hi", "persona": "sre"})
-    client.post("/api/chat", json={"message": "again", "persona": "sre"})
+    monkeypatch.setattr(main, "build_copilot", fake_build)
+    main.app.state.copilot = None
+    client.get("/api/conversations")
+    client.get("/api/conversations")
     assert built == [1]  # built once, then cached
-    main.app.state.session = None
+    main.app.state.copilot = None

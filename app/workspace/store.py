@@ -30,6 +30,27 @@ class WorkspaceMeta:
     incident_id: str
     source_type: str
     created_at: datetime
+    title: str = ""
+    updated_at: datetime | None = None
+
+
+class Message(BaseModel):
+    id: str
+    workspace_id: str
+    seq: int
+    role: str  # "user" | "assistant"
+    content: str
+    persona: str | None = None
+    created_at: datetime
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    source_type: str
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
 
 
 class Snapshot(BaseModel):
@@ -60,7 +81,19 @@ CREATE TABLE IF NOT EXISTS workspaces (
     id          TEXT PRIMARY KEY,
     incident_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
-    created_at  TEXT NOT NULL
+    created_at  TEXT NOT NULL,
+    title       TEXT NOT NULL DEFAULT '',
+    updated_at  TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS messages (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    seq          INTEGER NOT NULL,
+    role         TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    persona      TEXT,
+    created_at   TEXT NOT NULL,
+    UNIQUE (workspace_id, seq)
 );
 CREATE TABLE IF NOT EXISTS snapshots (
     id           TEXT PRIMARY KEY,
@@ -115,12 +148,15 @@ class WorkspaceStore:
 
     # --- lifecycle ---------------------------------------------------------
 
-    def create_workspace(self, incident_id: str, source_type: str) -> str:
+    def create_workspace(
+        self, incident_id: str, source_type: str, title: str = ""
+    ) -> str:
         wid = uuid.uuid4().hex
+        now = _now().isoformat()
         self._conn.execute(
-            "INSERT INTO workspaces (id, incident_id, source_type, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (wid, incident_id, source_type, _now().isoformat()),
+            "INSERT INTO workspaces (id, incident_id, source_type, created_at, title, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (wid, incident_id, source_type, now, title, now),
         )
         self._conn.commit()
         return wid
@@ -136,7 +172,81 @@ class WorkspaceStore:
             incident_id=row["incident_id"],
             source_type=row["source_type"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            title=row["title"],
+            updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
         )
+
+    def set_title(self, workspace_id: str, title: str) -> None:
+        self._conn.execute(
+            "UPDATE workspaces SET title = ? WHERE id = ?", (title, workspace_id)
+        )
+        self._conn.commit()
+
+    def _touch(self, workspace_id: str, when: datetime) -> None:
+        """Bump a conversation's last-activity time so listings sort by recency."""
+        self._conn.execute(
+            "UPDATE workspaces SET updated_at = ? WHERE id = ?",
+            (when.isoformat(), workspace_id),
+        )
+
+    # --- conversations (workspace + messages) -----------------------------
+
+    def add_message(
+        self, workspace_id: str, role: str, content: str, persona: str | None = None
+    ) -> Message:
+        created = _now()
+        seq = self._next_message_seq(workspace_id)
+        mid = uuid.uuid4().hex
+        self._conn.execute(
+            "INSERT INTO messages (id, workspace_id, seq, role, content, persona, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (mid, workspace_id, seq, role, content, persona, created.isoformat()),
+        )
+        self._touch(workspace_id, created)
+        self._conn.commit()
+        return Message(
+            id=mid, workspace_id=workspace_id, seq=seq, role=role,
+            content=content, persona=persona, created_at=created,
+        )
+
+    def get_messages(self, workspace_id: str) -> list[Message]:
+        rows = self._conn.execute(
+            "SELECT * FROM messages WHERE workspace_id = ? ORDER BY seq ASC",
+            (workspace_id,),
+        ).fetchall()
+        return [
+            Message(
+                id=r["id"], workspace_id=r["workspace_id"], seq=r["seq"],
+                role=r["role"], content=r["content"], persona=r["persona"],
+                created_at=datetime.fromisoformat(r["created_at"]),
+            )
+            for r in rows
+        ]
+
+    def list_conversations(self) -> list[ConversationSummary]:
+        rows = self._conn.execute(
+            "SELECT w.*, "
+            "  (SELECT COUNT(*) FROM messages m WHERE m.workspace_id = w.id) AS message_count "
+            "FROM workspaces w ORDER BY w.updated_at DESC, w.created_at DESC"
+        ).fetchall()
+        return [
+            ConversationSummary(
+                id=r["id"],
+                title=r["title"],
+                source_type=r["source_type"],
+                created_at=datetime.fromisoformat(r["created_at"]),
+                updated_at=datetime.fromisoformat(r["updated_at"] or r["created_at"]),
+                message_count=r["message_count"],
+            )
+            for r in rows
+        ]
+
+    def _next_message_seq(self, workspace_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COALESCE(MAX(seq), 0) AS m FROM messages WHERE workspace_id = ?",
+            (workspace_id,),
+        ).fetchone()
+        return int(row["m"]) + 1
 
     # --- append-with-history ----------------------------------------------
 
@@ -159,6 +269,7 @@ class WorkspaceStore:
             ),
         )
         self._index_reasoning(workspace_id, seq, investigation, created)
+        self._touch(workspace_id, created)
         self._conn.commit()
 
         return Snapshot(

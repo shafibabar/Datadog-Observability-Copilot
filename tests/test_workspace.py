@@ -23,7 +23,12 @@ from app.reasoning.models import (
     ReasoningObject,
 )
 from app.telemetry.models import EventSource, Severity, TelemetryEvent
-from app.workspace.sections import REGISTRY, hypothesis_key, render_sections
+from app.workspace.sections import (
+    REGISTRY,
+    hypothesis_key,
+    render_sections,
+    serialize_sections,
+)
 from app.workspace.store import WorkspaceStore
 
 
@@ -245,6 +250,61 @@ def test_confidence_history_isolates_distinct_hypotheses(store):
     assert [p.confidence for p in b] == [Confidence.LOW]
 
 
+# --- messages & conversations ----------------------------------------------
+
+def test_messages_roundtrip_in_order(store):
+    wid = store.create_workspace(incident_id="i", source_type="replay")
+    store.add_message(wid, role="user", content="Why slow?", persona="sre")
+    store.add_message(wid, role="assistant", content="The 09:02 deploy.", persona="sre")
+    msgs = store.get_messages(wid)
+    assert [m.role for m in msgs] == ["user", "assistant"]
+    assert [m.seq for m in msgs] == [1, 2]
+    assert msgs[0].content == "Why slow?"
+    assert msgs[0].persona == "sre"
+
+
+def test_messages_are_isolated_per_conversation(store):
+    a = store.create_workspace(incident_id="a", source_type="replay")
+    b = store.create_workspace(incident_id="b", source_type="replay")
+    store.add_message(a, role="user", content="in A")
+    store.add_message(b, role="user", content="in B")
+    assert [m.content for m in store.get_messages(a)] == ["in A"]
+    assert [m.content for m in store.get_messages(b)] == ["in B"]
+
+
+def test_create_workspace_accepts_title_and_get_returns_it(store):
+    wid = store.create_workspace(incident_id="i", source_type="replay", title="Checkout latency")
+    assert store.get_workspace(wid).title == "Checkout latency"
+
+
+def test_set_title_updates_it(store):
+    wid = store.create_workspace(incident_id="i", source_type="replay")
+    store.set_title(wid, "Renamed incident")
+    assert store.get_workspace(wid).title == "Renamed incident"
+
+
+def test_list_conversations_summarises_and_orders_by_recent_activity(store):
+    first = store.create_workspace(incident_id="i", source_type="replay", title="First")
+    second = store.create_workspace(incident_id="i", source_type="replay", title="Second")
+    # Activity in `first` after `second` was created should float it to the top.
+    store.add_message(first, role="user", content="ping")
+
+    convos = store.list_conversations()
+    assert [c.id for c in convos][0] == first        # most recently active first
+    assert {c.id for c in convos} == {first, second}
+    by_id = {c.id: c for c in convos}
+    assert by_id[first].message_count == 1
+    assert by_id[second].message_count == 0
+    assert by_id[first].title == "First"
+
+
+def test_recording_a_snapshot_bumps_activity(store):
+    a = store.create_workspace(incident_id="a", source_type="replay")
+    b = store.create_workspace(incident_id="b", source_type="replay")
+    store.record(a, make_investigation())  # activity in the older conversation
+    assert store.list_conversations()[0].id == a
+
+
 # --- registry-driven sections ----------------------------------------------
 
 def test_section_registry_covers_charter_sections():
@@ -291,3 +351,38 @@ def test_render_sections_populates_from_investigation():
 def test_affected_services_derived_from_timeline():
     views = {v.key: v for v in render_sections(make_investigation())}
     assert "checkout" in views["affected_services"].content
+
+
+# --- section serialization (for the live Workspace panel) ------------------
+
+def test_serialize_sections_is_json_friendly_and_typed():
+    sections = {s["key"]: s for s in serialize_sections(make_investigation())}
+    # one entry per registry section, each carrying a display "kind"
+    assert set(sections) == {s.key for s in REGISTRY}
+    assert all("kind" in s and "title" in s for s in sections.values())
+
+    assert sections["executive_summary"]["kind"] == "text"
+    assert sections["executive_summary"]["text"]
+
+    tl = sections["timeline"]
+    assert tl["kind"] == "timeline"
+    assert tl["items"][0]["time"]                       # HH:MM rendered
+    assert "severity" in tl["items"][0]
+
+    rc = sections["root_cause"]
+    assert rc["kind"] == "hypotheses"
+    assert rc["items"][0]["confidence"] in {"low", "medium", "high"}
+    assert "missing" in rc["items"][0]
+
+    ev = sections["evidence"]
+    assert ev["kind"] == "evidence"
+    assert ev["items"][0]["detail"]
+
+    assert sections["recommended_next_steps"]["kind"] == "claims"
+    assert sections["outstanding_questions"]["kind"] == "list"
+    assert isinstance(sections["outstanding_questions"]["items"], list)
+
+
+def test_serialize_sections_is_fully_json_serializable():
+    import json
+    json.dumps(serialize_sections(make_investigation()))  # must not raise

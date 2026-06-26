@@ -40,25 +40,43 @@ _SYSTEM = (
 )
 
 
-def _build_user_prompt(context: str, question: str | None) -> str:
+def _format_history(history: list[tuple[str, str]] | None, limit: int) -> str:
+    """Render the most recent turns as a compact transcript. Bounded by `limit`
+    so a long conversation doesn't blow up token cost."""
+    if not history:
+        return ""
+    recent = history[-limit:]
+    lines = "\n".join(f"{role}: {content}" for role, content in recent)
+    return f"CONVERSATION SO FAR (most recent last):\n{lines}\n\n"
+
+
+def _build_user_prompt(context: str, question: str | None, transcript: str) -> str:
     ask = question or "Give an overall investigation of the current system state."
     return (
         f"EVIDENCE CATALOG (cite these ids):\n{context}\n\n"
+        f"{transcript}"
         f"QUESTION: {ask}\n\n"
         "Return the JSON investigation now."
     )
 
 
 class ReasoningEngine:
-    def __init__(self, source: DataSource, llm: LLMClient) -> None:
+    def __init__(self, source: DataSource, llm: LLMClient, history_limit: int = 6) -> None:
         self._source = source
         self._llm = llm
+        self._history_limit = history_limit
 
-    def investigate(self, question: str | None = None) -> Investigation:
+    def investigate(
+        self,
+        question: str | None = None,
+        history: list[tuple[str, str]] | None = None,
+    ) -> Investigation:
         catalog, context = build_evidence_catalog(self._source)
         timeline = build_timeline(self._source.get_events())
 
-        raw = self._llm.complete(_SYSTEM, _build_user_prompt(context, question), deep=True)
+        transcript = _format_history(history, self._history_limit)
+        prompt = _build_user_prompt(context, question, transcript)
+        raw = self._llm.complete(_SYSTEM, prompt, deep=True)
         data = extract_json(raw)
         if not isinstance(data, dict):
             raise ValueError("Expected a JSON object from the model")

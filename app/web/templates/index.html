@@ -7,41 +7,65 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="dot"></span>
-      <strong>Observability Copilot</strong>
-      <span class="subtitle">evidence-backed investigations</span>
-    </div>
-    <div class="controls">
-      <label for="persona">Explain as</label>
-      <select id="persona">
-        <option value="support">Support Engineer</option>
-        <option value="sre" selected>Site Reliability Engineer</option>
-        <option value="swe">Software Engineer</option>
-        <option value="pm">Product Manager</option>
-        <option value="leadership">Engineering Leadership</option>
-      </select>
-      <button type="button" id="gen-summary" class="ghost">Generate Incident Summary</button>
-      <span id="status-banner" class="status">checking…</span>
-    </div>
-  </header>
+  <div id="app" class="app">
 
-  <main id="chat" class="chat">
-    <div class="message assistant">
-      <div class="bubble">
-        Ask me about your system's health, recent changes, or an incident. I reason over
-        the underlying telemetry and back every conclusion with evidence. Switch the
-        “Explain as” persona any time to re-frame the same findings.
+    <!-- Left: conversations -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="brand">
+          <span class="dot"></span>
+          <strong>Observability&nbsp;Copilot</strong>
+        </div>
+        <button id="new-chat" class="btn-new" type="button">＋ New investigation</button>
       </div>
-    </div>
-  </main>
+      <nav id="convo-list" class="convo-list" aria-label="Conversations"></nav>
+      <div class="sidebar-foot">
+        <span id="status-banner" class="status">checking…</span>
+      </div>
+    </aside>
 
-  <form id="composer" class="composer">
-    <textarea id="input" rows="1" placeholder="Ask anything… e.g. “Is the system healthy right now?”"></textarea>
-    <button type="submit" id="send">Send</button>
-  </form>
+    <!-- Center: chat -->
+    <main class="main">
+      <header class="main-head">
+        <div id="convo-title" class="convo-title">Investigation</div>
+        <div class="head-actions">
+          <label for="persona" class="head-label">Explain as</label>
+          <select id="persona" aria-label="Persona">
+            <option value="support">Support Engineer</option>
+            <option value="sre" selected>Site Reliability Engineer</option>
+            <option value="swe">Software Engineer</option>
+            <option value="pm">Product Manager</option>
+            <option value="leadership">Engineering Leadership</option>
+          </select>
+          <button id="gen-summary" class="ghost" type="button">Incident Summary</button>
+          <button id="toggle-workspace" class="ghost icon" type="button" title="Toggle Workspace panel">⧉</button>
+        </div>
+      </header>
 
+      <div id="chat" class="chat"></div>
+
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1"
+          placeholder="Ask about system health, recent changes, or an incident… e.g. “Is the system healthy right now?”"></textarea>
+        <button type="submit" id="send">Send</button>
+      </form>
+    </main>
+
+    <!-- Right: the living Investigation Workspace -->
+    <aside id="workspace" class="workspace">
+      <div class="workspace-head">
+        <div>
+          <strong>Investigation Workspace</strong>
+          <div class="ws-sub">the living document · updates as you investigate</div>
+        </div>
+        <span id="ws-snapshot" class="ws-snapshot"></span>
+      </div>
+      <div id="ws-body" class="ws-body">
+        <div class="ws-empty">Ask a question to start building the investigation.</div>
+      </div>
+    </aside>
+
+  </div>
   <script src="/static/app.js"></script>
 </body>
 </html>

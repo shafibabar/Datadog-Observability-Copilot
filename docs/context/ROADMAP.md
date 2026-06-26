@@ -16,6 +16,13 @@ The smallest coherent, demoable, extension-ready slice.
 
 **Definition of done (Iteration 0):** dashboard-tab + copilot-tab story works end to end: activate → health summary → significant changes → timeline → likely cause → evidence → persona-adapted explanation → one generated artifact, backed by the living Workspace, runnable locally.
 
+## Iteration 1 — conversations, memory, UI (done 2026-06-26)
+- [x] **Multiple conversations** (backend + frontend): conversation = Workspace + persisted messages; sidebar to list/create/switch; survives restart.
+- [x] **Conversational memory**: bounded recent-turn history fed to the reasoning prompt so follow-ups carry context.
+- [x] **New 3-pane UI**: conversation sidebar · restyled chat (markdown + evidence disclosure) · collapsible **live Investigation Workspace panel** (sections re-render each turn; confidence/severity color vocabulary).
+- [x] Conversation-scoped API; `Copilot` service; `serialize_sections`. 113 tests, 99% coverage.
+- Deferred within this theme: persist per-message evidence (reload disclosure); conversation rename/delete in UI.
+
 ## Later iterations (deferred, seams in place)
 - More artifacts: Executive Briefing, Customer Communication Draft, Technical Investigation Report, Post-Incident Report, Runbook Recommendation (confidence-gated, evidence-cited).
 - More personas; deeper continuous/proactive reasoning.

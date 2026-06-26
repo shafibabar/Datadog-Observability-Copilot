@@ -3,10 +3,10 @@
 _Last updated: 2026-06-26_
 
 ## Current gate
-Plan + Design **approved**. **Iteration 0 COMPLETE** — all roadmap items done; definition of done met. Awaiting human review / direction on Iteration 1 scope. Grounded in **TDD** (see `TESTING.md`).
+Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress** — multi-conversation + conversational memory + new 3-pane UI shipped (approved scope). Grounded in **TDD** (see `TESTING.md`).
 
 ## Tests
-**98 / 98 passing (100%); coverage 99%.** No pending (red) specs. Latest: refactor + hardening pass (enum `rank` ordering, shared `outstanding_questions`, production-factory + security + edge-case coverage).
+**113 / 113 passing (100%); coverage 99%.** No pending (red) specs. Latest: multi-conversation + conversational memory + 3-pane UI (engine history, store messages/conversations, section serializer, conversation-aware Copilot, conversation API).
 
 ## Done
 - Plan + Design approved (stack, dependencies, roadmap shape, context-file layout, key-handling constraint).
@@ -20,7 +20,15 @@ Plan + Design **approved**. **Iteration 0 COMPLETE** — all roadmap items done;
 - **TDD setup + foundation test baseline**: `pytest.ini`, `requirements-dev.txt`, `tests/test_config.py`, `tests/test_app.py`. 11/11 green. Verified by Claude in a clean venv.
 
 ## In progress
-- Nothing in-flight. Iteration 0 shipped; awaiting human direction on Iteration 1.
+- **Iteration 1 (multi-conversation + memory + UI)** shipped this session; awaiting human review. Possible next: persist per-message evidence for reload; more artifacts; dashboard/charts panel.
+
+## Iteration 1 — done this session
+- **Conversational memory:** `ReasoningEngine.investigate(question, history=...)` feeds bounded recent turns into the prompt (`history_limit`, default 6). Follow-ups now carry context.
+- **Multiple conversations:** a conversation = one Workspace + its messages, all persisted. Store gained a `messages` table, `title`/`updated_at` on workspaces, and `add_message`/`get_messages`/`list_conversations`/`set_title`. Activity bumps recency.
+- **Conversation-aware service:** `CopilotSession` → **`Copilot`** (`app/copilot.py`): `new_conversation`, `list_conversations`, `get_conversation`, `ask` (persists turns + memory), `rerender` (no LLM), `artifact`. Factory renamed `build_default_session` → **`build_copilot`**.
+- **Section serializer:** `serialize_sections()` (type-dispatched) → JSON for the live panel.
+- **API:** `/api/conversations` (GET list, POST create), `/api/conversations/{id}` (GET), `/{id}/chat`, `/{id}/artifact`. 404 on unknown conversation, 400 on unknown artifact, 503 keyless.
+- **New 3-pane UI:** conversation sidebar (list/new/switch, last-opened persisted in localStorage) · restyled chat with markdown + per-reply evidence disclosure · collapsible **live Investigation Workspace panel** rendering serialized sections with confidence/severity color vocabulary. Boot + shape smoke-tested.
 
 ## Next (Iteration 0 remainder) — all test-first from here
 1. ~~`DataSource` interface + ReplayAdapter (canonical incident)~~ ✅ done.

@@ -200,3 +200,32 @@ def test_engine_rejects_non_object_json():
     src = ReplayAdapter()
     with pytest.raises(ValueError):
         ReasoningEngine(src, FakeLLM("```json\n[1, 2, 3]\n```")).investigate()
+
+
+def test_engine_includes_conversation_history_in_prompt():
+    """Follow-ups must carry context: prior turns are fed to the model so it can
+    reason about 'what changed after that?' instead of starting cold."""
+    src = ReplayAdapter()
+    llm = FakeLLM(_CANNED)
+    history = [
+        ("user", "Is the system healthy?"),
+        ("assistant", "Checkout latency spiked after the 09:02 deploy."),
+    ]
+    ReasoningEngine(src, llm).investigate("What changed after that?", history=history)
+    prompt = llm.last["user"]
+    assert "Is the system healthy?" in prompt
+    assert "Checkout latency spiked after the 09:02 deploy." in prompt
+    assert "What changed after that?" in prompt
+
+
+def test_engine_history_is_optional_and_bounded():
+    # No history => no transcript section; long history is trimmed to recent turns.
+    src = ReplayAdapter()
+    llm = FakeLLM(_CANNED)
+    ReasoningEngine(src, llm).investigate("hello")
+    assert "CONVERSATION SO FAR" not in llm.last["user"]
+
+    long_history = [("user", f"q{i}") for i in range(20)]
+    ReasoningEngine(src, llm, history_limit=4).investigate("now", history=long_history)
+    assert "q19" in llm.last["user"]      # most recent kept
+    assert "q0" not in llm.last["user"]    # oldest trimmed

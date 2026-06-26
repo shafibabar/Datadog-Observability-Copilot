@@ -14,8 +14,14 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from app.reasoning.models import Confidence, Investigation
-from app.telemetry.models import EventSource
+from app.reasoning.models import (
+    Confidence,
+    Evidence,
+    Hypothesis,
+    Investigation,
+    ReasoningObject,
+)
+from app.telemetry.models import EventSource, TelemetryEvent
 
 
 def hypothesis_key(statement: str) -> str:
@@ -128,3 +134,66 @@ def render_sections(inv: Investigation) -> list[SectionView]:
         SectionView(s.key, s.title, s.order, s.populate(inv))
         for s in sorted(REGISTRY, key=lambda s: s.order)
     ]
+
+
+# --- presentation serialization (for the live Workspace panel) -------------
+
+def _serialize_content(content: object) -> dict:
+    """Map a section's heterogeneous content to a JSON-friendly payload tagged
+    with a display `kind`, dispatched on the content's type so new sections
+    serialize automatically as long as they reuse the existing content types."""
+    if isinstance(content, str):
+        return {"kind": "text", "text": content}
+
+    if isinstance(content, dict):
+        values = list(content.values())
+        if values and isinstance(values[0], Evidence):
+            return {"kind": "evidence", "items": [e.model_dump() for e in values]}
+        # confidence map {statement: Confidence}
+        return {"kind": "kv", "items": [
+            {"label": k, "value": getattr(v, "value", str(v))} for k, v in content.items()
+        ]}
+
+    if isinstance(content, list):
+        if not content:
+            return {"kind": "empty", "items": []}
+        first = content[0]
+        if isinstance(first, TelemetryEvent):
+            return {"kind": "timeline", "items": [{
+                "time": e.timestamp.strftime("%H:%M"),
+                "title": e.title,
+                "severity": e.severity.value,
+                "source": e.source.value,
+                "service": e.service,
+            } for e in content]}
+        if isinstance(first, Hypothesis):
+            return {"kind": "hypotheses", "items": [{
+                "statement": h.statement,
+                "confidence": h.confidence.value,
+                "supporting": h.supporting_evidence,
+                "contradicting": h.contradicting_evidence,
+                "missing": h.missing_information,
+            } for h in content]}
+        if isinstance(first, ReasoningObject):
+            return {"kind": "claims", "items": [{
+                "claim": r.claim, "confidence": r.confidence.value, "evidence": r.evidence,
+            } for r in content]}
+        if isinstance(first, Evidence):
+            return {"kind": "evidence", "items": [e.model_dump() for e in content]}
+        if isinstance(first, str):
+            return {"kind": "list", "items": list(content)}
+
+    return {"kind": "text", "text": str(content)}
+
+
+def serialize_sections(inv: Investigation) -> list[dict]:
+    """The full ordered section set as JSON-friendly dicts for the UI panel."""
+    out = []
+    for view in render_sections(inv):
+        out.append({
+            "key": view.key,
+            "title": view.title,
+            "order": view.order,
+            **_serialize_content(view.content),
+        })
+    return out
