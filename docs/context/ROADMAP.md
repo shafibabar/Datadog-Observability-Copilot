@@ -4,8 +4,8 @@
 The smallest coherent, demoable, extension-ready slice.
 - [x] Foundation: config/secrets, FastAPI app, chat UI skeleton, context files.
 - [x] TDD harness + foundation test baseline (11/11 green).
-- [ ] `DataSource` interface + **ReplayAdapter**: canonical synthetic incident (deployment-induced latency: deploy → cache hit ratio drop → DB latency up → API SLO breach → support tickets → rollback → recovery). Normalized timestamped event model.
-- [ ] **LiveDatadogAdapter** (read-only): metrics, events, monitors via Datadog REST API.
+- [x] `DataSource` interface + **ReplayAdapter**: canonical synthetic incident (deployment-induced latency: deploy → cache hit ratio drop → DB latency up → API SLO breach → support tickets → rollback → recovery). Normalized timestamped event model.
+- [x] **LiveDatadogAdapter** (read-only): metrics + events via Datadog REST API (HTTP mocked in tests). Monitors deferred.
 - [ ] **Reasoning engine** (Claude): structured reasoning objects (claim · category Fact/Hypothesis/Recommendation/Unknown · confidence · evidence pointers); automatic timeline reconstruction; root-cause hypotheses with for/against evidence + missing info.
 - [ ] **Investigation Workspace** (SQLite, append-with-history): core sections (Exec Summary, Current Health, Timeline, Evidence, Correlated Signals, Root-Cause Hypotheses, Affected Services, Customer Impact, Recommended Next Steps, Outstanding Questions, Confidence). Registry/config-driven sections.
 - [ ] Chat wired to workspace + reasoning; **persona-rendered** answers (registry-driven personas); "show me the evidence" affordance.

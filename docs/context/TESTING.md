@@ -19,4 +19,6 @@ pytest --cov=app       # with coverage
 ## Metrics log (newest first)
 | Date | Step | Passing | Total | Pass % | Notes |
 |---|---|---|---|---|---|
+| 2026-06-26 | LiveDatadogAdapter | 32 | 32 | 100% | Test-first: +8 specs (auth headers, query params, metric/event parsing, severity + source mapping, empty series, time window). All HTTP mocked via httpx.MockTransport — no keys/network. Zero regressions. |
+| 2026-06-26 | DataSource + ReplayAdapter | 24 | 24 | 100% | Test-first: +13 specs (telemetry model, DataSource interface, replay canonical incident) written red, then implemented to green. Zero regressions. |
 | 2026-06-26 | Foundation test baseline | 11 | 11 | 100% | Retrofitted tests for config (secret-free, capability flags, defaults) + app surface (healthz, status, index, chat). No pending tests yet. Env fix: pinned wheels for Python 3.14; dropped Jinja2 (page is static). |
