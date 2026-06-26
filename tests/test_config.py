@@ -9,6 +9,7 @@ _SECRET_VARS = [
     "COPILOT_MODEL_FAST",
     "COPILOT_MODEL_DEEP",
     "DATADOG_SITE",
+    "COPILOT_WORKSPACE_DB",
 ]
 
 
@@ -64,3 +65,10 @@ def test_status_reports_capability_booleans(monkeypatch):
     st = Settings().status()
     assert st["anthropic_configured"] is True
     assert st["datadog_configured"] is False
+
+
+def test_workspace_db_default_and_override(monkeypatch):
+    _clear(monkeypatch)
+    assert Settings().workspace_db == "data/workspace.db"
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", "/tmp/custom.db")
+    assert Settings().workspace_db == "/tmp/custom.db"

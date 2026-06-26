@@ -14,11 +14,9 @@ from typing import Callable
 
 from pydantic import BaseModel
 
-from app.reasoning.models import Confidence, Investigation
+from app.reasoning.models import Investigation
 from app.telemetry.models import Severity
-
-_CONFIDENCE_RANK = {Confidence.LOW: 0, Confidence.MEDIUM: 1, Confidence.HIGH: 2}
-_SEVERITY_RANK = {Severity.INFO: 0, Severity.WARNING: 1, Severity.CRITICAL: 2}
+from app.workspace.sections import outstanding_questions
 
 
 class ArtifactSection(BaseModel):
@@ -54,14 +52,14 @@ class ArtifactSpec:
 def _peak_severity(inv: Investigation) -> Severity:
     if not inv.timeline:
         return Severity.INFO
-    return max((e.severity for e in inv.timeline), key=lambda s: _SEVERITY_RANK[s])
+    return max((e.severity for e in inv.timeline), key=lambda s: s.rank)
 
 
 def _top_hypothesis(inv: Investigation):
     active = [h for h in inv.hypotheses if h.status == "active"]
     if not active:
         return None
-    return max(active, key=lambda h: _CONFIDENCE_RANK[h.confidence])
+    return max(active, key=lambda h: h.confidence.rank)
 
 
 # --- Incident Summary ------------------------------------------------------
@@ -105,10 +103,9 @@ def _build_incident_summary(inv: Investigation, incident_id: str) -> ArtifactDoc
         recs = "No recommended actions yet."
     sections.append(ArtifactSection(heading="Recommended Next Steps", body=recs))
 
-    # Outstanding questions = declared unknowns + each hypothesis's missing info.
-    questions = [u.claim for u in inv.unknowns]
-    for h in inv.hypotheses:
-        questions.extend(h.missing_information)
+    # Outstanding questions = declared unknowns + each hypothesis's missing info
+    # (shared with the Workspace section so the two never drift).
+    questions = outstanding_questions(inv)
     if questions:
         sections.append(ArtifactSection(
             heading="Outstanding Questions",

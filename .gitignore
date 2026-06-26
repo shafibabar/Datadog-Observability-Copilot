@@ -17,6 +17,9 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # Local workspace state / databases
 *.db

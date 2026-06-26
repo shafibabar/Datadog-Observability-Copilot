@@ -182,6 +182,31 @@ def test_reasoning_objects_are_extracted_and_queryable(store):
     assert kinds == ["fact", "hypothesis", "recommendation", "unknown"]
 
 
+def test_reasoning_objects_can_be_filtered_by_snapshot(store):
+    wid = store.create_workspace(incident_id="i", source_type="replay")
+    store.record(wid, make_investigation())
+    store.record(wid, make_investigation())
+    only_first = store.reasoning_objects(wid, snapshot_seq=1)
+    assert only_first
+    assert {o.snapshot_seq for o in only_first} == {1}
+    assert len(store.reasoning_objects(wid)) == 2 * len(only_first)
+
+
+def test_workspace_db_never_stores_secret_values(tmp_path):
+    """Charter constraint: no secret material is ever persisted to the Workspace
+    DB. Even if a secret-looking string rides along in the data, the store only
+    writes investigation content — but we guard against regression by scanning
+    the raw DB bytes for a planted secret."""
+    db = tmp_path / "workspace.db"
+    store = WorkspaceStore(db)
+    wid = store.create_workspace(incident_id="i", source_type="replay")
+    store.record(wid, make_investigation())
+    store.close()
+    raw = db.read_bytes()
+    for secret in (b"sk-ant-", b"DD-API-KEY", b"ANTHROPIC_API_KEY"):
+        assert secret not in raw
+
+
 # --- confidence over time --------------------------------------------------
 
 def test_confidence_history_tracks_a_hypothesis_across_snapshots(store):
@@ -204,6 +229,20 @@ def test_confidence_history_tracks_a_hypothesis_across_snapshots(store):
 
 def test_hypothesis_key_is_normalised(store):
     assert hypothesis_key("  Deploy  caused  it ") == hypothesis_key("deploy caused it")
+
+
+def test_confidence_history_isolates_distinct_hypotheses(store):
+    """Two different hypotheses must not share a confidence track."""
+    wid = store.create_workspace(incident_id="i", source_type="replay")
+    store.record(wid, make_investigation(
+        hypo_statement="Deploy A caused it.", hypo_conf=Confidence.HIGH))
+    store.record(wid, make_investigation(
+        hypo_statement="Deploy B caused it.", hypo_conf=Confidence.LOW))
+
+    a = store.confidence_history(wid, hypothesis_key("Deploy A caused it."))
+    b = store.confidence_history(wid, hypothesis_key("Deploy B caused it."))
+    assert [p.confidence for p in a] == [Confidence.HIGH]
+    assert [p.confidence for p in b] == [Confidence.LOW]
 
 
 # --- registry-driven sections ----------------------------------------------

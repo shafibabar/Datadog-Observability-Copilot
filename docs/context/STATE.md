@@ -6,7 +6,7 @@ _Last updated: 2026-06-26_
 Plan + Design **approved**. **Iteration 0 COMPLETE** — all roadmap items done; definition of done met. Awaiting human review / direction on Iteration 1 scope. Grounded in **TDD** (see `TESTING.md`).
 
 ## Tests
-**82 / 82 passing (100%).** No pending (red) specs. Latest: Incident Summary artifact (registry-driven transform over workspace state; LLM faked).
+**98 / 98 passing (100%); coverage 99%.** No pending (red) specs. Latest: refactor + hardening pass (enum `rank` ordering, shared `outstanding_questions`, production-factory + security + edge-case coverage).
 
 ## Done
 - Plan + Design approved (stack, dependencies, roadmap shape, context-file layout, key-handling constraint).

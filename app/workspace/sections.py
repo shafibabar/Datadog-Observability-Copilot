@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from app.reasoning.models import Confidence, Investigation
+from app.telemetry.models import EventSource
 
 
 def hypothesis_key(statement: str) -> str:
@@ -22,6 +23,16 @@ def hypothesis_key(statement: str) -> str:
     so confidence movement can be tracked even though each reasoning pass emits
     fresh objects with no stable id. Case- and whitespace-insensitive."""
     return re.sub(r"\s+", " ", statement or "").strip().lower()
+
+
+def outstanding_questions(inv: Investigation) -> list[str]:
+    """The investigation's open threads: explicitly declared unknowns plus the
+    missing information each hypothesis still needs. Shared by the Workspace
+    section and the artifact layer so the two never drift."""
+    questions = [u.claim for u in inv.unknowns]
+    for h in inv.hypotheses:
+        questions.extend(h.missing_information)
+    return questions
 
 
 @dataclass(frozen=True)
@@ -78,7 +89,7 @@ def _affected_services(inv: Investigation):
 
 def _customer_impact(inv: Investigation):
     # Support-sourced timeline entries are the clearest customer-impact signal.
-    return [evt for evt in inv.timeline if evt.source.value == "support"]
+    return [evt for evt in inv.timeline if evt.source == EventSource.SUPPORT]
 
 
 def _recommended_next_steps(inv: Investigation):
@@ -86,11 +97,7 @@ def _recommended_next_steps(inv: Investigation):
 
 
 def _outstanding_questions(inv: Investigation):
-    # Declared unknowns + everything every hypothesis says it is missing.
-    questions = [u.claim for u in inv.unknowns]
-    for h in inv.hypotheses:
-        questions.extend(h.missing_information)
-    return questions
+    return outstanding_questions(inv)
 
 
 def _confidence_assessment(inv: Investigation):

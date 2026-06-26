@@ -132,3 +132,16 @@ def test_to_markdown_renders_title_and_headings():
     assert md.startswith("# ")
     assert "## Summary" in md
     assert "## Recommended Next Steps" in md
+
+
+def test_incident_summary_handles_empty_investigation():
+    """A bare investigation (no timeline / hypotheses / questions) must degrade
+    honestly, not crash or invent."""
+    empty = Investigation(summary="")
+    doc = render_artifact("incident_summary", empty)
+    headings = {s.heading for s in doc.sections}
+    sev = next(s.body for s in doc.sections if s.heading == "Severity")
+    cause = next(s.body for s in doc.sections if s.heading == "Likely Cause")
+    assert "info" in sev.lower()                      # no events → INFO
+    assert "no root-cause hypothesis" in cause.lower()  # honest, no invention
+    assert "Outstanding Questions" not in headings      # omitted when there are none

@@ -119,3 +119,37 @@ def test_artifact_endpoint_generates_incident_summary(wired_session):
 def test_artifact_endpoint_rejects_unknown_key(wired_session):
     r = client.post("/api/artifact", json={"key": "nope"})
     assert r.status_code == 400
+
+
+def test_artifact_endpoint_unavailable_without_session():
+    # No wired session and no key in the test env → graceful 503, not a crash.
+    app.state.session = None
+    r = client.post("/api/artifact", json={"key": "incident_summary"})
+    assert r.status_code == 503
+    assert r.json()["configured"] is False
+
+
+def test_session_is_lazily_built_and_cached(monkeypatch):
+    """When a key is configured, the first request builds the session from
+    settings and caches it on app.state for reuse."""
+    import app.main as main
+
+    built = []
+
+    def fake_build(_settings):
+        built.append(1)
+        source = ReplayAdapter()
+        catalog, _ = build_evidence_catalog(source)
+        vid = next(iter(catalog))
+        engine = ReasoningEngine(source, _FakeLLM({
+            "summary": "ok", "facts": [], "hypotheses": [],
+            "recommendations": [], "unknowns": [],
+        }))
+        return CopilotSession(source, engine, WorkspaceStore(":memory:"), incident_id="t")
+
+    monkeypatch.setattr(main, "build_default_session", fake_build)
+    main.app.state.session = None
+    client.post("/api/chat", json={"message": "hi", "persona": "sre"})
+    client.post("/api/chat", json={"message": "again", "persona": "sre"})
+    assert built == [1]  # built once, then cached
+    main.app.state.session = None

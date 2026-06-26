@@ -26,6 +26,11 @@ class Severity(str, Enum):
     WARNING = "warning"
     CRITICAL = "critical"
 
+    @property
+    def rank(self) -> int:
+        """Severity ordering (INFO < WARNING < CRITICAL) for sorting/peak picks."""
+        return {"info": 0, "warning": 1, "critical": 2}[self.value]
+
 
 class TelemetryEvent(BaseModel):
     """A normalized, timestamped event for the unified incident timeline."""

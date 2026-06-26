@@ -6,11 +6,17 @@ Written test-first (TDD red) before the implementation exists.
 import pytest
 
 from app.telemetry.base import DataSource
-from app.telemetry.models import EventSource, MetricSeries, TelemetryEvent
+from app.telemetry.models import EventSource, MetricSeries, Severity, TelemetryEvent
 from app.telemetry.replay import ReplayAdapter
 
 
 # --- domain model ---------------------------------------------------------
+
+def test_severity_has_orderable_rank():
+    assert Severity.INFO.rank < Severity.WARNING.rank < Severity.CRITICAL.rank
+    peak = max([Severity.INFO, Severity.CRITICAL, Severity.WARNING], key=lambda s: s.rank)
+    assert peak == Severity.CRITICAL
+
 
 def test_metric_series_aggregates():
     s = MetricSeries(metric="m", unit="ms", points=[])

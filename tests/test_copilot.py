@@ -12,11 +12,23 @@ ReplayAdapter — fully offline, no key, no spend.
 """
 import json
 
-from app.copilot import CopilotSession
+from app.config import Settings
+from app.copilot import CopilotSession, _build_source, build_default_session
 from app.reasoning.engine import ReasoningEngine
 from app.reasoning.evidence import build_evidence_catalog
+from app.telemetry.datadog import LiveDatadogAdapter
 from app.telemetry.replay import ReplayAdapter
 from app.workspace.store import WorkspaceStore
+
+_DEFAULT_ENV = [
+    "ANTHROPIC_API_KEY", "DATADOG_API_KEY", "DATADOG_APP_KEY",
+    "COPILOT_DATA_SOURCE", "COPILOT_WORKSPACE_DB",
+]
+
+
+def _clear(monkeypatch):
+    for var in _DEFAULT_ENV:
+        monkeypatch.delenv(var, raising=False)
 
 
 class FakeLLM:
@@ -120,3 +132,40 @@ def test_artifact_with_no_prior_investigation_runs_one():
     result = session.artifact("incident_summary")
     assert llm.calls == 1
     assert result["artifact"]["key"] == "incident_summary"
+
+
+# --- the production factory (build_default_session / _build_source) ---------
+
+def test_build_default_session_is_none_without_key(monkeypatch):
+    _clear(monkeypatch)
+    assert build_default_session(Settings()) is None
+
+
+def test_build_default_session_builds_replay_session_with_key(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")  # no network at construction
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "replay")
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
+    session = build_default_session(Settings())
+    assert isinstance(session, CopilotSession)
+    # workspace_id is created lazily against the replay source
+    assert session._source.source_type == "replay"
+
+
+def test_build_source_selects_replay_by_default(monkeypatch):
+    _clear(monkeypatch)
+    assert isinstance(_build_source(Settings()), ReplayAdapter)
+
+
+def test_build_source_selects_datadog_when_configured(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
+    monkeypatch.setenv("DATADOG_API_KEY", "dd-api")
+    monkeypatch.setenv("DATADOG_APP_KEY", "dd-app")
+    assert isinstance(_build_source(Settings()), LiveDatadogAdapter)
+
+
+def test_build_source_falls_back_to_replay_when_datadog_keys_missing(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")  # but no DD keys
+    assert isinstance(_build_source(Settings()), ReplayAdapter)

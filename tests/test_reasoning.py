@@ -30,6 +30,14 @@ def test_confidence_parse_is_lenient():
     assert Confidence.parse(None) == Confidence.MEDIUM
 
 
+def test_confidence_has_orderable_rank():
+    # Domain ordering lives on the model, so callers can sort/compare without
+    # re-encoding the order (e.g. picking the strongest hypothesis).
+    assert Confidence.LOW.rank < Confidence.MEDIUM.rank < Confidence.HIGH.rank
+    strongest = max([Confidence.LOW, Confidence.HIGH, Confidence.MEDIUM], key=lambda c: c.rank)
+    assert strongest == Confidence.HIGH
+
+
 def test_reasoning_object_defaults():
     r = ReasoningObject(claim="x", category=ReasoningCategory.FACT)
     assert r.confidence == Confidence.MEDIUM
@@ -83,6 +91,12 @@ def test_extract_json_fenced_with_prose():
 def test_extract_json_raises_on_garbage():
     with pytest.raises(ValueError):
         extract_json("no json here at all")
+
+
+def test_extract_json_raises_on_malformed_object():
+    # A brace pair is found but the content isn't valid JSON.
+    with pytest.raises(ValueError):
+        extract_json("here: {a: 1, oops}")
 
 
 def test_anthropic_client_selects_model_and_returns_text():
@@ -178,3 +192,11 @@ def test_engine_survives_non_json_response():
     src = ReplayAdapter()
     with pytest.raises(ValueError):
         ReasoningEngine(src, FakeLLM("I could not analyze this.")).investigate()
+
+
+def test_engine_rejects_non_object_json():
+    # A (fenced) JSON array is valid JSON but not the expected investigation
+    # object — the engine must reject it rather than mis-assemble.
+    src = ReplayAdapter()
+    with pytest.raises(ValueError):
+        ReasoningEngine(src, FakeLLM("```json\n[1, 2, 3]\n```")).investigate()

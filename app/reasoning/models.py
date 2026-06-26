@@ -33,6 +33,12 @@ class Confidence(str, Enum):
         except ValueError:
             return cls.MEDIUM
 
+    @property
+    def rank(self) -> int:
+        """Confidence ordering (LOW < MEDIUM < HIGH) so callers can sort/compare
+        without re-encoding the order (e.g. picking the strongest hypothesis)."""
+        return {"low": 0, "medium": 1, "high": 2}[self.value]
+
 
 class Evidence(BaseModel):
     """A pointer from a claim down to the underlying telemetry."""
