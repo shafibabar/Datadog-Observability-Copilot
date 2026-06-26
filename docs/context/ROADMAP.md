@@ -3,6 +3,7 @@
 ## Iteration 0 — MVP slice (current)
 The smallest coherent, demoable, extension-ready slice.
 - [x] Foundation: config/secrets, FastAPI app, chat UI skeleton, context files.
+- [x] TDD harness + foundation test baseline (11/11 green).
 - [ ] `DataSource` interface + **ReplayAdapter**: canonical synthetic incident (deployment-induced latency: deploy → cache hit ratio drop → DB latency up → API SLO breach → support tickets → rollback → recovery). Normalized timestamped event model.
 - [ ] **LiveDatadogAdapter** (read-only): metrics, events, monitors via Datadog REST API.
 - [ ] **Reasoning engine** (Claude): structured reasoning objects (claim · category Fact/Hypothesis/Recommendation/Unknown · confidence · evidence pointers); automatic timeline reconstruction; root-cause hypotheses with for/against evidence + missing info.

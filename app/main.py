@@ -9,19 +9,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from starlette.requests import Request
 
 from app.config import settings
 
 _WEB = Path(__file__).resolve().parent / "web"
+_INDEX = _WEB / "templates" / "index.html"
 
 app = FastAPI(title="Observability Copilot", version="0.1.0")
 app.mount("/static", StaticFiles(directory=_WEB / "static"), name="static")
-templates = Jinja2Templates(directory=str(_WEB / "templates"))
 
 
 @app.get("/healthz")
@@ -56,5 +54,6 @@ def chat(req: ChatRequest) -> JSONResponse:
 
 
 @app.get("/")
-def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+def index() -> FileResponse:
+    # The page is fully static (no server-side templating), so serve it directly.
+    return FileResponse(_INDEX)

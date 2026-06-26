@@ -3,7 +3,10 @@
 _Last updated: 2026-06-26_
 
 ## Current gate
-Plan + Design **approved**. In **Implementation — Iteration 0**.
+Plan + Design **approved**. In **Implementation — Iteration 0**. Grounded in **TDD** (see `TESTING.md`).
+
+## Tests
+**11 / 11 passing (100%).** Baseline established. No pending (red) specs yet.
 
 ## Done
 - Plan + Design approved (stack, dependencies, roadmap shape, context-file layout, key-handling constraint).
@@ -14,11 +17,12 @@ Plan + Design **approved**. In **Implementation — Iteration 0**.
   - `app/main.py` — FastAPI app: `/healthz`, `/api/status`, `/` chat page, `/api/chat` (placeholder).
   - Chat UI: `app/web/templates/index.html`, `static/styles.css`, `static/app.js` (persona selector, status banner).
   - `docs/context/` files created.
+- **TDD setup + foundation test baseline**: `pytest.ini`, `requirements-dev.txt`, `tests/test_config.py`, `tests/test_app.py`. 11/11 green. Verified by Claude in a clean venv.
 
 ## In progress
-- Awaiting human to run the foundation locally and confirm it boots (see commit/run commands in chat).
+- Awaiting human to run the foundation + tests locally and confirm (see commit/run commands in chat).
 
-## Next (Iteration 0 remainder)
+## Next (Iteration 0 remainder) — all test-first from here
 1. `DataSource` interface + **ReplayAdapter** with the canonical deployment-induced latency incident (synthetic telemetry).
 2. **LiveDatadogAdapter** (read-only) behind the same interface.
 3. Claude **reasoning engine**: structured reasoning objects (claim, category, confidence, evidence pointers); timeline reconstruction.

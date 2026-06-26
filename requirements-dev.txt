@@ -1,0 +1,4 @@
+# Dev/test-only dependencies (not needed to run the app). Free, permissive licenses.
+-r requirements.txt
+pytest==9.1.1
+pytest-cov==7.1.0

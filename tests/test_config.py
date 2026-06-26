@@ -1,0 +1,66 @@
+"""Tests for secure config / secret loading (app/config.py)."""
+from app.config import Settings
+
+_SECRET_VARS = [
+    "ANTHROPIC_API_KEY",
+    "DATADOG_API_KEY",
+    "DATADOG_APP_KEY",
+    "COPILOT_DATA_SOURCE",
+    "COPILOT_MODEL_FAST",
+    "COPILOT_MODEL_DEEP",
+    "DATADOG_SITE",
+]
+
+
+def _clear(monkeypatch):
+    for var in _SECRET_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_defaults_when_unset(monkeypatch):
+    _clear(monkeypatch)
+    s = Settings()
+    assert s.data_source == "replay"
+    assert s.has_anthropic is False
+    assert s.has_datadog is False
+    assert s.datadog_site == "datadoghq.com"
+    assert s.model_fast and s.model_deep  # sensible non-empty defaults
+
+
+def test_anthropic_detected_when_key_present(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-123")
+    assert Settings().has_anthropic is True
+
+
+def test_datadog_requires_both_keys(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_API_KEY", "dd-api-only")
+    assert Settings().has_datadog is False  # app key missing
+    monkeypatch.setenv("DATADOG_APP_KEY", "dd-app")
+    assert Settings().has_datadog is True
+
+
+def test_data_source_is_lowercased(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "DataDog")
+    assert Settings().data_source == "datadog"
+
+
+def test_status_never_leaks_secret_values(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-xyz")
+    monkeypatch.setenv("DATADOG_API_KEY", "dd-secret-abc")
+    monkeypatch.setenv("DATADOG_APP_KEY", "dd-app-secret")
+    blob = repr(Settings().status())
+    assert "sk-secret-xyz" not in blob
+    assert "dd-secret-abc" not in blob
+    assert "dd-app-secret" not in blob
+
+
+def test_status_reports_capability_booleans(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+    st = Settings().status()
+    assert st["anthropic_configured"] is True
+    assert st["datadog_configured"] is False
