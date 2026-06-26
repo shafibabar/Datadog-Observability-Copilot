@@ -6,7 +6,7 @@ _Last updated: 2026-06-26_
 Plan + Design **approved**. In **Implementation — Iteration 0**. Grounded in **TDD** (see `TESTING.md`).
 
 ## Tests
-**32 / 32 passing (100%).** No pending (red) specs. Latest: LiveDatadogAdapter (test-first, all HTTP mocked).
+**43 / 43 passing (100%).** No pending (red) specs. Latest: Claude reasoning engine (test-first, Claude fully mocked).
 
 ## Done
 - Plan + Design approved (stack, dependencies, roadmap shape, context-file layout, key-handling constraint).
@@ -25,7 +25,7 @@ Plan + Design **approved**. In **Implementation — Iteration 0**. Grounded in *
 ## Next (Iteration 0 remainder) — all test-first from here
 1. ~~`DataSource` interface + ReplayAdapter (canonical incident)~~ ✅ done.
 2. ~~LiveDatadogAdapter (read-only)~~ ✅ done (HTTP mocked in tests).
-3. Claude **reasoning engine**: structured reasoning objects (claim, category, confidence, evidence pointers); timeline reconstruction.
+3. ~~Claude reasoning engine~~ ✅ done (structured objects, timeline, evidence grounding; Claude mocked in tests).
 4. **Investigation Workspace** (SQLite, append-with-history) + core sections.
 5. Wire `/api/chat` to the workspace + reasoning; persona-rendered answers; "show me the evidence".
 6. One artifact: **Incident Summary**.
