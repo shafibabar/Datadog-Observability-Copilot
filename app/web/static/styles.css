@@ -103,3 +103,21 @@ body {
   cursor: pointer;
 }
 .composer button:disabled { opacity: 0.5; cursor: default; }
+
+/* "Show me the evidence" disclosure */
+.evidence {
+  margin-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding-top: 8px;
+  font-size: 0.9em;
+}
+.evidence summary {
+  cursor: pointer;
+  font-weight: 600;
+  opacity: 0.8;
+}
+.evidence ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.evidence li { margin: 4px 0; opacity: 0.9; }

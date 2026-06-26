@@ -9,7 +9,10 @@
 - **Hypothesis** — a candidate root cause with for-evidence, **against-evidence**, missing-information, and confidence; multiple can be ranked at once; retirable as evidence changes.
 
 ## Personas (registry-driven; change the lens, never the facts)
-support · sre · swe · pm · leadership. Each = config of which concerns to surface first, vocabulary level, detail depth.
+support · sre · swe · pm · leadership. Each = config of which concerns to surface first, vocabulary level, detail depth (`app/personas.py` `REGISTRY`). `render(persona, investigation)` deterministically composes the reply from the structured Investigation — no LLM call, so switching persona re-frames the same facts for free.
+
+## CopilotSession (`app/copilot.py`)
+Joins DataSource + ReasoningEngine + Workspace into the chat loop. `ask()` = investigate + append a Workspace snapshot (living doc grows); `rerender()` = re-render latest snapshot through a new persona, no new reasoning. Every reply ships its evidence catalog.
 
 ## Artifacts (registry-driven transforms over workspace state)
 Incident Summary (Iter 0) · Executive Briefing · Technical Investigation Report · Customer Communication Draft · Post-Incident Report · Runbook Recommendation (confidence-gated).

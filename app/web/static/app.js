@@ -17,6 +17,31 @@ function addMessage(role, text) {
   return bubble;
 }
 
+// "Show me the evidence" — a first-class, always-available disclosure attached
+// to any reply that carries evidence pointers.
+function attachEvidence(bubble, evidence) {
+  if (!evidence || !evidence.length) return;
+  const details = document.createElement("details");
+  details.className = "evidence";
+  const summary = document.createElement("summary");
+  summary.textContent = `Show me the evidence (${evidence.length})`;
+  details.appendChild(summary);
+  const list = document.createElement("ul");
+  for (const e of evidence) {
+    const li = document.createElement("li");
+    li.textContent = `[${e.kind}] ${e.ref} — ${e.detail}`;
+    list.appendChild(li);
+  }
+  details.appendChild(list);
+  bubble.appendChild(details);
+}
+
+function renderReply(bubble, data) {
+  bubble.textContent = data.reply ?? "(no reply)";
+  attachEvidence(bubble, data.evidence);
+  chat.scrollTop = chat.scrollHeight;
+}
+
 async function refreshStatus() {
   try {
     const r = await fetch("/api/status");
@@ -47,12 +72,28 @@ form.addEventListener("submit", async (e) => {
       body: JSON.stringify({ message, persona: personaSel.value }),
     });
     const data = await r.json();
-    thinking.textContent = data.reply ?? "(no reply)";
+    renderReply(thinking, data);
   } catch {
     thinking.textContent = "Something went wrong reaching the backend.";
   } finally {
     sendBtn.disabled = false;
     input.focus();
+  }
+});
+
+// Switching persona re-frames the existing investigation (same facts, new lens)
+// via an empty-message re-render — no new reasoning pass.
+personaSel.addEventListener("change", async () => {
+  const bubble = addMessage("assistant", "…");
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "", persona: personaSel.value }),
+    });
+    renderReply(bubble, await r.json());
+  } catch {
+    bubble.textContent = "Something went wrong reaching the backend.";
   }
 });
 

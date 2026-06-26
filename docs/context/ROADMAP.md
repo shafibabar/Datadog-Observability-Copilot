@@ -7,8 +7,8 @@ The smallest coherent, demoable, extension-ready slice.
 - [x] `DataSource` interface + **ReplayAdapter**: canonical synthetic incident (deployment-induced latency: deploy → cache hit ratio drop → DB latency up → API SLO breach → support tickets → rollback → recovery). Normalized timestamped event model.
 - [x] **LiveDatadogAdapter** (read-only): metrics + events via Datadog REST API (HTTP mocked in tests). Monitors deferred.
 - [x] **Reasoning engine** (Claude): structured reasoning objects (claim · category Fact/Hypothesis/Recommendation/Unknown · confidence · evidence pointers); automatic timeline reconstruction; root-cause hypotheses with for/against evidence + missing info. Evidence-grounded (invalid citations dropped). Claude mocked in tests.
-- [ ] **Investigation Workspace** (SQLite, append-with-history): core sections (Exec Summary, Current Health, Timeline, Evidence, Correlated Signals, Root-Cause Hypotheses, Affected Services, Customer Impact, Recommended Next Steps, Outstanding Questions, Confidence). Registry/config-driven sections.
-- [ ] Chat wired to workspace + reasoning; **persona-rendered** answers (registry-driven personas); "show me the evidence" affordance.
+- [x] **Investigation Workspace** (SQLite, append-with-history): immutable snapshots of the full Investigation; queryable reasoning objects; confidence-over-time per hypothesis; 11 registry/config-driven sections (`app/workspace/sections.py`). Real persistence proven across store instances. No secrets in DB.
+- [x] Chat wired to workspace + reasoning (`app/copilot.py` CopilotSession); **persona-rendered** answers (registry-driven personas in `app/personas.py`); "show me the evidence" ships with every reply; persona-switch re-renders the same facts with no new LLM call. Graceful keyless degradation.
 - [ ] One artifact: **Incident Summary** (transform over workspace state). Registry-driven artifact set.
 - [ ] README run instructions a non-developer can follow verbatim.
 

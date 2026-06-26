@@ -38,6 +38,7 @@ class Settings:
 
     # App
     data_source: str = field(default_factory=lambda: _get("COPILOT_DATA_SOURCE", "replay").lower())
+    workspace_db: str = field(default_factory=lambda: _get("COPILOT_WORKSPACE_DB", "data/workspace.db"))
 
     # --- Capability checks (never expose the secret values themselves) ---
     @property
