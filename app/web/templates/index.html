@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Observability Copilot</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <strong>Observability Copilot</strong>
+      <span class="subtitle">evidence-backed investigations</span>
+    </div>
+    <div class="controls">
+      <label for="persona">Explain as</label>
+      <select id="persona">
+        <option value="support">Support Engineer</option>
+        <option value="sre" selected>Site Reliability Engineer</option>
+        <option value="swe">Software Engineer</option>
+        <option value="pm">Product Manager</option>
+        <option value="leadership">Engineering Leadership</option>
+      </select>
+      <span id="status-banner" class="status">checking…</span>
+    </div>
+  </header>
+
+  <main id="chat" class="chat">
+    <div class="message assistant">
+      <div class="bubble">
+        Ask me about your system's health, recent changes, or an incident. I reason over
+        the underlying telemetry and back every conclusion with evidence.
+        <em>(Foundation skeleton — reasoning engine connects next.)</em>
+      </div>
+    </div>
+  </main>
+
+  <form id="composer" class="composer">
+    <textarea id="input" rows="1" placeholder="Ask anything… e.g. “Is the system healthy right now?”"></textarea>
+    <button type="submit" id="send">Send</button>
+  </form>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# Secrets — NEVER commit. Real keys live only in a local .env (see .env.example).
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local workspace state / databases
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Windows Zone.Identifier files (WSL)
+*:Zone.Identifier
