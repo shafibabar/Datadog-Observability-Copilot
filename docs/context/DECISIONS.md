@@ -2,6 +2,15 @@
 
 Newest first. Each: date · decision · alternatives · why.
 
+## 2026-06-26 · TDD is the grounding discipline
+**Decision:** All implementation is grounded in TDD (pytest). Regression invariant: green tests stay green. New capabilities are written test-first; pending specs marked `@pytest.mark.pending`. Each step reports `passing/total (%)`; any pass-% dip caused by newly added red spec tests is stated explicitly. Log in `docs/context/TESTING.md`.
+**Why:** Human directive. Also strengthens the meta-story — green tests are objective proof the AI-built solution works.
+
+## 2026-06-26 · Pin dependency versions to Python-3.14 wheels; drop Jinja2
+**Decision:** Only Python 3.14 is available locally with no Rust/compiler, so pinned versions that ship prebuilt cp314 wheels (pydantic 2.13.4, fastapi 0.138.1, uvicorn 0.49.0, anthropic 0.112.0, etc.). Dropped `uvicorn[standard]` extras and Jinja2 (the index page is fully static → served via FileResponse, avoiding a Jinja2/3.14 cache bug).
+**Alternatives:** install Rust to compile pydantic-core (rejected — slower, fragile, worse for a non-dev's one-command run); older Python (not available).
+**Why:** Keep install to wheels-only so a non-developer runs `pip install` with no toolchain.
+
 ## 2026-06-26 · Secrets via gitignored .env, never committed
 **Decision:** API keys (Anthropic, Datadog) load at runtime from a local gitignored `.env` (or real env vars) through `app/config.py`. Never hardcoded, committed, logged, or written to the workspace DB. `.env.example` (empty) is the only committed template.
 **Alternatives:** hardcoded keys (rejected — would leak to GitHub); secret manager now (deferred — overkill for demo).
