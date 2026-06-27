@@ -6,7 +6,7 @@ _Last updated: 2026-06-26_
 Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress** — multi-conversation + conversational memory + new 3-pane UI shipped (approved scope). Grounded in **TDD** (see `TESTING.md`).
 
 ## Tests
-**113 / 113 passing (100%); coverage 99%.** No pending (red) specs. Latest: multi-conversation + conversational memory + 3-pane UI (engine history, store messages/conversations, section serializer, conversation-aware Copilot, conversation API).
+**143 / 143 passing (100%).** No pending (red) specs. Latest: **vibe-coding metrics subsystem** (`metrics/`) — collector (Stop hook) + tolerant analytics + FastAPI/canvas dashboard. Product app unchanged (still 113 of these are app+earlier).
 
 ## Done
 - Plan + Design approved (stack, dependencies, roadmap shape, context-file layout, key-handling constraint).
@@ -20,7 +20,14 @@ Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress*
 - **TDD setup + foundation test baseline**: `pytest.ini`, `requirements-dev.txt`, `tests/test_config.py`, `tests/test_app.py`. 11/11 green. Verified by Claude in a clean venv.
 
 ## In progress
-- **Iteration 1 (multi-conversation + memory + UI)** shipped this session; awaiting human review. Possible next: persist per-message evidence for reload; more artifacts; dashboard/charts panel.
+- **Metrics subsystem shipped** (separate from the product, in `metrics/`). Run the dashboard: `python -m uvicorn metrics.dashboard:app --port 8055` → http://127.0.0.1:8055. The `Stop` hook in `.claude/settings.json` auto-appends a record after each prompt (loaded — confirmed firing).
+- Deferred app work (pre-metrics): persist per-message evidence for reload; the Claude **CLI LLM backend** (`ClaudeCliClient` behind the `LLMClient` seam — planned/approved, not built); more artifacts.
+
+## Metrics subsystem — done this session (2026-06-27)
+- `metrics/prompts.jsonl` (JSONL data) + `SCHEMA.md`; historical baseline reconstructed from transcripts (real tokens/timestamps) + git + TESTING.md.
+- `metrics/collector.py` (stdlib-only) run by a `Stop` hook → appends one record per prompt cycle; per-turn git delta arithmetic; dedupe.
+- `metrics/analytics.py` tolerant loader + aggregations (robust to schema evolution / malformed lines).
+- `metrics/dashboard.py` (FastAPI) + `metrics/static/` (dependency-free canvas charts) → live local dashboard on a free port.
 
 ## Iteration 1 — done this session
 - **Conversational memory:** `ReasoningEngine.investigate(question, history=...)` feeds bounded recent turns into the prompt (`history_limit`, default 6). Follow-ups now carry context.

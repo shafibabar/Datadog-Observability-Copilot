@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/shafi/Datadog-Observability-Copilot/metrics/collector.py 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "Recording session metrics"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -23,6 +23,10 @@ The smallest coherent, demoable, extension-ready slice.
 - [x] Conversation-scoped API; `Copilot` service; `serialize_sections`. 113 tests, 99% coverage.
 - Deferred within this theme: persist per-message evidence (reload disclosure); conversation rename/delete in UI.
 
+## Meta / tooling — Vibe-coding metrics (done 2026-06-27)
+- [x] `metrics/` subsystem (separate from the product): JSONL data + Stop-hook collector + tolerant analytics + FastAPI/canvas live dashboard. Audits tokens, durations, planning-vs-implementation, cumulative tests, churn, docs/context growth. 30 specs. Run: `python -m uvicorn metrics.dashboard:app --port 8055`.
+- Deferred: capture tool-confirmation (Y/N) prompts; store per-call model for accurate cost.
+
 ## Later iterations (deferred, seams in place)
 - More artifacts: Executive Briefing, Customer Communication Draft, Technical Investigation Report, Post-Incident Report, Runbook Recommendation (confidence-gated, evidence-cited).
 - More personas; deeper continuous/proactive reasoning.

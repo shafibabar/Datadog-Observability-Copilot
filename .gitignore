@@ -27,6 +27,12 @@ htmlcov/
 *.sqlite3
 data/*.db
 
+# Metrics collector local runtime state (the prompts.jsonl data IS committed)
+metrics/.collector_state.json
+
+# Claude Code: commit the shared hook (settings.json); keep personal overrides local
+.claude/settings.local.json
+
 # OS / editor
 .DS_Store
 *.swp

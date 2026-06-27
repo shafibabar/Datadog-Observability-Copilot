@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vibe Coding Metrics</title>
+  <link rel="stylesheet" href="/static/dashboard.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span><strong>Vibe Coding Metrics</strong>
+      <span class="sub">auditing the AI-assisted build of the Observability Copilot</span></div>
+    <div class="meta"><span id="updated">—</span>
+      <label class="live"><input type="checkbox" id="auto" checked /> live</label></div>
+  </header>
+
+  <section id="cards" class="cards"></section>
+
+  <section class="grid">
+    <div class="panel"><h3>Tokens per prompt (input + output)</h3><canvas id="c_tokens"></canvas></div>
+    <div class="panel"><h3>Cumulative tokens</h3><canvas id="c_cumtokens"></canvas></div>
+    <div class="panel"><h3>Cumulative tests passing</h3><canvas id="c_tests"></canvas></div>
+    <div class="panel"><h3>Tests added per prompt</h3><canvas id="c_testsadded"></canvas></div>
+    <div class="panel"><h3>Lines added vs removed</h3><canvas id="c_lines"></canvas></div>
+    <div class="panel"><h3>Files created / modified / deleted</h3><canvas id="c_files"></canvas></div>
+    <div class="panel"><h3>Prompt duration (sec)</h3><canvas id="c_duration"></canvas></div>
+    <div class="panel"><h3>Intent split</h3><canvas id="c_intent"></canvas><div id="lg_intent"></div></div>
+    <div class="panel"><h3>Docs/context updates per file</h3><canvas id="c_docs"></canvas></div>
+    <div class="panel"><h3>Cumulative estimated cost (USD)</h3><canvas id="c_cost"></canvas></div>
+  </section>
+
+  <footer class="foot">Reads <code>metrics/prompts.jsonl</code> · estimated cost is approximate
+    (records don't store per-call model)</footer>
+
+  <script src="/static/charts.js"></script>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
