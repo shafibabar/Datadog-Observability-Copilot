@@ -19,12 +19,51 @@ architected for extension. It runs entirely on your machine.
   python3 --version
   ```
   You should see `Python 3.14.x`. If not, install Python 3.14 before continuing.
-- An **Anthropic API key** (for the reasoning) — get one at
-  <https://console.anthropic.com/> → *Settings → API Keys*. You'll paste it in Step 4.
-  The app still **starts** without it; the chat just tells you it isn't configured yet.
+- **A way for the app to reach Claude** (for the reasoning). You need **one** of
+  these — see [Connect Claude](#connect-claude-choose-one) below for how to get each:
+  - **The Claude Code CLI, signed in** — *no API key needed*. If you already use
+    Claude Code, you're set; this is the default.
+  - **An Anthropic API key** — if you'd rather use the API directly.
+
+  The app still **starts** without either; the chat just tells you it isn't
+  configured yet.
 
 > Every command below is meant to be **copy-pasted into your terminal**, one block at a
 > time, from the project folder. No coding required.
+
+---
+
+## Connect Claude (choose one)
+
+The reasoning layer needs to talk to Claude. Pick **whichever you already have** — you
+do **not** need both. The app auto-detects: if no API key is set, it uses the Claude Code
+CLI; if a key is set, it uses the API. (You can force the choice with `COPILOT_LLM_BACKEND`
+in `.env`: `auto` / `cli` / `sdk`.)
+
+### Option A — the Claude Code CLI (no API key) · *recommended if you use Claude Code*
+The app runs Claude through your **local Claude Code sign-in** — nothing to paste into
+`.env`. You just need the `claude` CLI installed and logged in.
+
+**How to obtain it:**
+1. If you don't have it yet, install the CLI:
+   ```bash
+   npm install -g @anthropic-ai/claude-code
+   ```
+2. Sign in once (this opens your browser to authenticate; it remembers you afterward):
+   ```bash
+   claude
+   ```
+   Follow the prompt to log in, then type `/exit` to leave the chat. To verify you're
+   signed in, run `claude -p "say ok"` — you should see `ok`.
+
+That's the whole setup — leave `ANTHROPIC_API_KEY` blank in `.env`.
+
+### Option B — an Anthropic API key
+Use the Anthropic API directly instead of the CLI.
+
+**How to obtain it:** go to <https://console.anthropic.com/> → *Settings → API Keys* →
+**Create Key**, copy it (starts with `sk-ant-`), and paste it into `.env` on the
+`ANTHROPIC_API_KEY=` line (Step 4). Note: API usage is billed to that Anthropic account.
 
 ---
 
@@ -49,18 +88,23 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Add your Anthropic API key
+### 4. Create your settings file and connect Claude
 Create your private settings file from the template (this `.env` file is **never**
 committed to git):
 ```bash
 cp .env.example .env
 ```
-Now open `.env` in any text editor and put your key after the `=` on the
-`ANTHROPIC_API_KEY` line, so it reads:
-```
-ANTHROPIC_API_KEY=sk-ant-...your key...
-```
-Save and close the file. Leave everything else as-is to use the built-in demo incident.
+Now connect Claude. See [Connect Claude](#connect-claude-choose-one) just below for the
+two options and how to obtain each.
+
+- **Using the Claude Code CLI (default, no key):** you don't need to edit `.env` at all —
+  just make sure you're signed in to Claude Code (see [Option A](#option-a--the-claude-code-cli-no-api-key--recommended-if-you-use-claude-code)).
+  Leave everything as-is.
+- **Using an Anthropic API key:** open `.env` in any text editor and put your key after
+  the `=` on the `ANTHROPIC_API_KEY` line, so it reads
+  `ANTHROPIC_API_KEY=sk-ant-...your key...`, then save.
+
+Leave everything else as-is to use the built-in demo incident.
 
 ### 5. Start the app
 ```bash
@@ -114,18 +158,75 @@ You should see all tests passing.
 
 ---
 
+## Run the metrics dashboard (the "vibe-coding" meta-story)
+
+Alongside the product there's a small **metrics subsystem** (in `metrics/`) that tracks
+how this project itself was built with Claude Code — prompts, tokens, cost, and
+code-change velocity over time. It's a separate local app that runs just like the
+product. **No API key and no extra install are needed** (it reuses the libraries from
+Step 3 and a standalone, dependency-free collector).
+
+### 1. Activate the environment (same as the product)
+```bash
+cd /home/shafi/Datadog-Observability-Copilot
+source .venv/bin/activate
+```
+
+### 2. Start the metrics dashboard
+```bash
+python -m uvicorn metrics.dashboard:app --port 8055
+```
+Leave this terminal running (Ctrl + C to stop). You can run it **at the same time** as
+the product app — they use different ports (8000 vs 8055).
+
+### 3. Open it in your browser
+```
+http://127.0.0.1:8055
+```
+You'll see charts of prompts over time, token/cost totals, and code churn — rendered with
+plain `<canvas>`, no external chart library.
+
+**Where the data comes from:** each recorded session is one line in
+`metrics/prompts.jsonl`. A Claude Code **`Stop` hook** (configured in
+`.claude/settings.json`) runs `metrics/collector.py` automatically after each prompt and
+appends a record — so the dashboard fills in as you keep working. Nothing to run by hand.
+
+---
+
 ## Optional: connect live Datadog (read-only)
 
-To point the Copilot at a real Datadog org instead of the replayed incident, add these
-to your `.env` and restart the app:
+To point the Copilot at a real Datadog org instead of the replayed incident, add your
+credential to `.env` and restart the app. The adapter is **read-only**. Leave
+`COPILOT_DATA_SOURCE=replay` for the reliable demo.
+
+### Recommended: a Personal Access Token (PAT)
+Datadog now offers token-based auth. A **Personal Access Token** is a single,
+self-contained credential (no separate application key needed):
+```
+COPILOT_DATA_SOURCE=datadog
+DATADOG_ACCESS_TOKEN=...your token...
+DATADOG_SITE=datadoghq.com
+```
+
+**How to obtain a PAT:** in Datadog, click your **avatar → Personal Settings → Access
+Tokens → “+ New Access Token”**. Give it a name, choose an expiry (24 hours to 1 year),
+click **Select Scopes** and grant read scopes (e.g. metrics/events read), then create it.
+**Copy the token immediately — it's shown only once.** Paste it into
+`DATADOG_ACCESS_TOKEN`. The app sends it as an `Authorization: Bearer` header.
+
+### Legacy alternative: API key + Application key
+The classic key pair still works (Datadog considers it legacy). Use it if that's what
+your org has:
 ```
 COPILOT_DATA_SOURCE=datadog
 DATADOG_API_KEY=...your API key...
 DATADOG_APP_KEY=...your Application key...
 DATADOG_SITE=datadoghq.com
 ```
-Keys come from your Datadog *Organization Settings* (API Keys / Application Keys). The
-adapter is **read-only**. Leave `COPILOT_DATA_SOURCE=replay` for the reliable demo.
+These come from your Datadog *Organization Settings* (API Keys / Application Keys). If a
+PAT is also set, the PAT takes precedence.
+
+> Set `DATADOG_SITE` to your region (`datadoghq.com`, `datadoghq.eu`, `us3.datadoghq.com`, …).
 
 ---
 
@@ -134,14 +235,15 @@ adapter is **read-only**. Leave `COPILOT_DATA_SOURCE=replay` for the reliable de
 ```
 app/
   config.py            Settings + secret loading (.env). Secrets never touch git or the DB.
-  main.py              FastAPI app: serves the UI, /api/chat, /api/artifact, /api/status.
-  copilot.py           CopilotSession: joins data + reasoning + workspace into the chat loop.
+  main.py              FastAPI app: serves the UI, /api/conversations, /api/status.
+  copilot.py           Copilot: joins data + reasoning + workspace across conversations.
   personas.py          Registry of the 5 personas (config only) + deterministic rendering.
   artifacts.py         Registry of operational artifacts (Incident Summary).
   telemetry/           DataSource interface + ReplayAdapter (demo) and LiveDatadogAdapter.
-  reasoning/           The Claude reasoning engine: structured objects, timeline, evidence.
+  reasoning/           Reasoning engine + the LLM seam: Claude via the CLI (no key) or the API SDK.
   workspace/           The Investigation Workspace: SQLite append-with-history + sections.
   web/                 The browser UI (static HTML/CSS/JS).
+metrics/               The build-metrics subsystem: collector (Stop hook) + local dashboard.
 tests/                 The full test suite.
 docs/context/          Project memory: PROJECT, STATE, ROADMAP, DECISIONS, BUILD-LOG, etc.
 ```
@@ -159,8 +261,13 @@ they are the authoritative, version-controlled source of truth for where things 
 
 - **`python3: command not found`** — Python isn't installed or isn't on your PATH.
   Install Python 3.14.
-- **The chat says Claude isn't configured** — your `ANTHROPIC_API_KEY` is missing or
-  empty in `.env`. Add it (Step 4) and restart the app (Ctrl + C, then Step 5).
+- **The chat says Claude isn't configured** — neither backend is available. Either sign
+  in to the Claude Code CLI ([Option A](#option-a--the-claude-code-cli-no-api-key--recommended-if-you-use-claude-code):
+  run `claude` once and log in), or add an `ANTHROPIC_API_KEY` to `.env`
+  ([Option B](#option-b--an-anthropic-api-key)). Then restart the app (Ctrl + C, then Step 5).
+- **The chat errors mentioning the `claude` CLI** — you're on the CLI backend but the CLI
+  isn't installed or signed in. Run `claude` and log in (Option A), or switch to an API
+  key (Option B). Confirm with `claude -p "say ok"`.
 - **`Address already in use`** — something is already on port 8000. Start on another
   port, e.g. `python -m uvicorn app.main:app --port 8001`, and open
   `http://127.0.0.1:8001`.

@@ -53,17 +53,24 @@ class LiveDatadogAdapter(DataSource):
 
     def __init__(
         self,
-        api_key: str,
-        app_key: str,
+        api_key: str = "",
+        app_key: str = "",
         site: str = "datadoghq.com",
+        access_token: str = "",
         metric_queries: dict[str, str] | None = None,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 10.0,
     ) -> None:
         self._metric_queries = metric_queries or dict(_DEFAULT_METRIC_QUERIES)
+        # A Personal Access Token authenticates on its own (Bearer); fall back to
+        # the legacy API-key + Application-key header pair when no token is given.
+        if access_token:
+            headers = {"Authorization": f"Bearer {access_token}"}
+        else:
+            headers = {"DD-API-KEY": api_key, "DD-APPLICATION-KEY": app_key}
         self._client = httpx.Client(
             base_url=f"https://api.{site}",
-            headers={"DD-API-KEY": api_key, "DD-APPLICATION-KEY": app_key},
+            headers=headers,
             transport=transport,
             timeout=timeout,
         )

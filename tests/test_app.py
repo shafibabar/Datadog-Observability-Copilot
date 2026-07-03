@@ -130,17 +130,23 @@ def test_unknown_conversation_is_404(wired):
                        json={"key": "incident_summary"}).status_code == 404
 
 
-# --- keyless degradation ---------------------------------------------------
+# --- degradation when no LLM backend is available --------------------------
+# (no API key AND no `claude` CLI). build_copilot returns None in that case;
+# we force it here so the path is deterministic regardless of the environment.
 
-def test_listing_reports_unconfigured_without_key():
-    app.state.copilot = None
+def test_listing_reports_unconfigured_without_backend(monkeypatch):
+    import app.main as main
+    monkeypatch.setattr(main, "build_copilot", lambda _s: None)
+    main.app.state.copilot = None
     data = client.get("/api/conversations").json()
     assert data["configured"] is False
     assert data["conversations"] == []
 
 
-def test_mutating_endpoints_503_without_key():
-    app.state.copilot = None
+def test_mutating_endpoints_503_without_backend(monkeypatch):
+    import app.main as main
+    monkeypatch.setattr(main, "build_copilot", lambda _s: None)
+    main.app.state.copilot = None
     assert client.post("/api/conversations", json={}).status_code == 503
     assert client.post("/api/conversations/x/chat",
                        json={"message": "hi"}).status_code == 503

@@ -1,12 +1,17 @@
 # STATE.md — live status
 
-_Last updated: 2026-06-26_
+_Last updated: 2026-07-03_
 
 ## Current gate
 Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress** — multi-conversation + conversational memory + new 3-pane UI shipped (approved scope). Grounded in **TDD** (see `TESTING.md`).
 
 ## Tests
-**143 / 143 passing (100%).** No pending (red) specs. Latest: **vibe-coding metrics subsystem** (`metrics/`) — collector (Stop hook) + tolerant analytics + FastAPI/canvas dashboard. Product app unchanged (still 113 of these are app+earlier).
+**154 / 154 passing (100%), 99% cov.** No pending (red) specs. Latest: **keyless Claude via the `claude` CLI** (`ClaudeCliClient` behind the `LLMClient` seam) + **Datadog Personal Access Token** (Bearer) support — both test-first, +11 specs. Prior: vibe-coding metrics subsystem (`metrics/`).
+
+## Latest session — done (2026-07-03)
+- **No API key needed.** `ClaudeCliClient` (`app/reasoning/llm.py`) shells out to the local `claude` CLI headless (`claude -p …`), reusing the Claude Code login. `COPILOT_LLM_BACKEND` (`auto`/`cli`/`sdk`) selects the backend; `auto` = CLI when keyless, else SDK. `build_copilot(settings, cli_available=…)` reworked; returns None only when there's no key **and** no CLI. Subprocess runner + CLI detection injected → suite stays offline.
+- **Datadog PAT.** `DATADOG_ACCESS_TOKEN` → `Authorization: Bearer`; preferred over the legacy `DD-API-KEY`/`DD-APPLICATION-KEY` pair (kept as fallback). `has_datadog` true with a token alone.
+- **Docs.** README rewritten (Connect-Claude section w/ obtain steps for CLI + API key; Datadog PAT obtain steps; **metrics dashboard run section**). `.env.example`, `CLAUDE.md`, `DECISIONS.md` updated. See DECISIONS 2026-07-03.
 
 ## Done
 - Plan + Design approved (stack, dependencies, roadmap shape, context-file layout, key-handling constraint).
@@ -49,4 +54,4 @@ Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress*
 **→ Iteration 0 definition of done MET.** Next gate: agree Iteration 1 scope (candidates in ROADMAP "Later iterations").
 
 ## Needed from human
-- Tests run keyless (LLM faked). To run the app **live** locally, an `ANTHROPIC_API_KEY` in `.env` is now required (chat degrades gracefully without it). Datadog keys only if `COPILOT_DATA_SOURCE=datadog`.
+- Tests run keyless (LLM faked). To run the app **live** locally you now need **either** a Claude Code CLI sign-in (`claude`, no key — default) **or** an `ANTHROPIC_API_KEY` in `.env`; chat degrades gracefully with neither. Datadog only if `COPILOT_DATA_SOURCE=datadog` — a `DATADOG_ACCESS_TOKEN` (PAT) or the legacy API+App key pair.

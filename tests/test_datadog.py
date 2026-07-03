@@ -82,6 +82,30 @@ def test_get_metric_sends_auth_and_query_and_parses_points():
     assert s.points[0].timestamp == datetime(2024, 1, 15, 9, 0, tzinfo=timezone.utc)
 
 
+def test_access_token_uses_bearer_auth_and_no_key_headers():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["auth"] = req.headers.get("Authorization")
+        seen["dd_api"] = req.headers.get("DD-API-KEY")
+        seen["dd_app"] = req.headers.get("DD-APPLICATION-KEY")
+        return httpx.Response(200, json={"series": []})
+
+    a = LiveDatadogAdapter(
+        access_token="pat-secret",
+        site="datadoghq.eu",
+        transport=httpx.MockTransport(handler),
+        metric_queries={"m": "avg:m{*}"},
+    )
+    a.get_metric("m", start=datetime(2024, 1, 15, tzinfo=timezone.utc),
+                 end=datetime(2024, 1, 15, 1, tzinfo=timezone.utc))
+
+    assert seen["auth"] == "Bearer pat-secret"
+    # A PAT authenticates on its own — the legacy key headers are not sent.
+    assert seen["dd_api"] is None
+    assert seen["dd_app"] is None
+
+
 def test_get_metric_handles_empty_series():
     a = _adapter(lambda req: httpx.Response(200, json={"series": []}),
                  metric_queries={"m": "avg:m{*}"})

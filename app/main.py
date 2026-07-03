@@ -26,8 +26,9 @@ app = FastAPI(title="Observability Copilot", version="0.2.0")
 app.mount("/static", StaticFiles(directory=_WEB / "static"), name="static")
 
 _NOT_CONFIGURED = {
-    "error": "Claude isn't configured yet. Add ANTHROPIC_API_KEY to a local .env "
-             "file and restart to enable evidence-backed investigations.",
+    "error": "Claude isn't configured yet. Either sign in to the Claude Code CLI "
+             "(run `claude` once and log in), or add ANTHROPIC_API_KEY to a local "
+             ".env file, then restart to enable evidence-backed investigations.",
     "configured": False,
 }
 

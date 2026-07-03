@@ -5,9 +5,11 @@ _SECRET_VARS = [
     "ANTHROPIC_API_KEY",
     "DATADOG_API_KEY",
     "DATADOG_APP_KEY",
+    "DATADOG_ACCESS_TOKEN",
     "COPILOT_DATA_SOURCE",
     "COPILOT_MODEL_FAST",
     "COPILOT_MODEL_DEEP",
+    "COPILOT_LLM_BACKEND",
     "DATADOG_SITE",
     "COPILOT_WORKSPACE_DB",
 ]
@@ -40,6 +42,20 @@ def test_datadog_requires_both_keys(monkeypatch):
     assert Settings().has_datadog is False  # app key missing
     monkeypatch.setenv("DATADOG_APP_KEY", "dd-app")
     assert Settings().has_datadog is True
+
+
+def test_datadog_configured_with_access_token_alone(monkeypatch):
+    # A Personal Access Token is a standalone credential — no api/app key needed.
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_ACCESS_TOKEN", "pat-abc")
+    assert Settings().has_datadog is True
+
+
+def test_llm_backend_defaults_to_auto_and_is_lowercased(monkeypatch):
+    _clear(monkeypatch)
+    assert Settings().llm_backend == "auto"
+    monkeypatch.setenv("COPILOT_LLM_BACKEND", "CLI")
+    assert Settings().llm_backend == "cli"
 
 
 def test_data_source_is_lowercased(monkeypatch):

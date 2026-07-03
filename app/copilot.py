@@ -137,20 +137,51 @@ class Copilot:
         }
 
 
-def build_copilot(settings) -> Copilot | None:
-    """Build the Copilot from runtime settings, or return None when Claude is not
-    configured (no key) so the app degrades gracefully without crashing."""
-    if not settings.has_anthropic:
+def _resolve_backend(settings, cli_available) -> str:
+    """Decide which LLM backend to use: 'sdk', 'cli', or 'none' (degrade).
+
+    - sdk : requires an API key.
+    - cli : requires the local `claude` CLI (the keyless "Claude Code way").
+    - auto: prefer the SDK when a key is present, otherwise fall back to the CLI.
+    """
+    backend = settings.llm_backend
+    if backend == "sdk":
+        return "sdk" if settings.has_anthropic else "none"
+    if backend == "cli":
+        return "cli" if cli_available() else "none"
+    # "auto" (default)
+    if settings.has_anthropic:
+        return "sdk"
+    return "cli" if cli_available() else "none"
+
+
+def build_copilot(settings, cli_available=None) -> Copilot | None:
+    """Build the Copilot from runtime settings, or return None when no LLM
+    backend is available (no API key and no `claude` CLI) so the app degrades
+    gracefully without crashing. `cli_available` is injectable for tests."""
+    from app.reasoning.llm import cli_available as _detect_cli
+
+    if cli_available is None:
+        cli_available = _detect_cli
+
+    backend = _resolve_backend(settings, cli_available)
+    if backend == "none":
         return None
 
-    from app.reasoning.llm import AnthropicClient
-
     source = _build_source(settings)
-    llm = AnthropicClient(
-        api_key=settings.anthropic_api_key,
-        model_fast=settings.model_fast,
-        model_deep=settings.model_deep,
-    )
+    if backend == "sdk":
+        from app.reasoning.llm import AnthropicClient
+
+        llm = AnthropicClient(
+            api_key=settings.anthropic_api_key,
+            model_fast=settings.model_fast,
+            model_deep=settings.model_deep,
+        )
+    else:  # "cli"
+        from app.reasoning.llm import ClaudeCliClient
+
+        llm = ClaudeCliClient(model_fast=settings.model_fast, model_deep=settings.model_deep)
+
     engine = ReasoningEngine(source, llm)
     store = WorkspaceStore(settings.workspace_db)
     return Copilot(source, engine, store, incident_id=f"{source.source_type}-session")
@@ -163,6 +194,7 @@ def _build_source(settings) -> DataSource:
         return LiveDatadogAdapter(
             api_key=settings.datadog_api_key,
             app_key=settings.datadog_app_key,
+            access_token=settings.datadog_access_token,
             site=settings.datadog_site,
         )
     from app.telemetry.replay import ReplayAdapter

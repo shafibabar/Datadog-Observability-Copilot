@@ -26,14 +26,18 @@ def _get(name: str, default: str = "") -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    # Anthropic
+    # Anthropic / Claude
     anthropic_api_key: str = field(default_factory=lambda: _get("ANTHROPIC_API_KEY"))
     model_fast: str = field(default_factory=lambda: _get("COPILOT_MODEL_FAST", "claude-haiku-4-5-20251001"))
     model_deep: str = field(default_factory=lambda: _get("COPILOT_MODEL_DEEP", "claude-sonnet-4-6"))
+    # Which LLM backend to use: "auto" (Claude CLI when no key, else SDK), "cli", or "sdk".
+    llm_backend: str = field(default_factory=lambda: _get("COPILOT_LLM_BACKEND", "auto").lower())
 
     # Datadog (optional — only needed for the live data source)
     datadog_api_key: str = field(default_factory=lambda: _get("DATADOG_API_KEY"))
     datadog_app_key: str = field(default_factory=lambda: _get("DATADOG_APP_KEY"))
+    # A Personal Access Token (PAT) is a standalone credential — preferred over the legacy key pair.
+    datadog_access_token: str = field(default_factory=lambda: _get("DATADOG_ACCESS_TOKEN"))
     datadog_site: str = field(default_factory=lambda: _get("DATADOG_SITE", "datadoghq.com"))
 
     # App
@@ -47,13 +51,15 @@ class Settings:
 
     @property
     def has_datadog(self) -> bool:
-        return bool(self.datadog_api_key and self.datadog_app_key)
+        # A PAT authenticates on its own; otherwise the legacy pair is required.
+        return bool(self.datadog_access_token or (self.datadog_api_key and self.datadog_app_key))
 
     def status(self) -> dict[str, object]:
         """Safe, secret-free summary for health checks and the UI banner."""
         return {
             "data_source": self.data_source,
             "anthropic_configured": self.has_anthropic,
+            "llm_backend": self.llm_backend,
             "datadog_configured": self.has_datadog,
             "datadog_site": self.datadog_site,
             "model_fast": self.model_fast,

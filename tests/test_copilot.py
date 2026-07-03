@@ -22,8 +22,8 @@ from app.telemetry.replay import ReplayAdapter
 from app.workspace.store import WorkspaceStore
 
 _DEFAULT_ENV = [
-    "ANTHROPIC_API_KEY", "DATADOG_API_KEY", "DATADOG_APP_KEY",
-    "COPILOT_DATA_SOURCE", "COPILOT_WORKSPACE_DB",
+    "ANTHROPIC_API_KEY", "DATADOG_API_KEY", "DATADOG_APP_KEY", "DATADOG_ACCESS_TOKEN",
+    "COPILOT_DATA_SOURCE", "COPILOT_WORKSPACE_DB", "COPILOT_LLM_BACKEND",
 ]
 
 
@@ -174,18 +174,41 @@ def test_get_conversation_response_is_json_serializable():
 
 # --- the production factory ------------------------------------------------
 
-def test_build_copilot_is_none_without_key(monkeypatch):
+def test_build_copilot_is_none_without_any_backend(monkeypatch):
+    # No API key AND the claude CLI isn't available -> nothing to reason with.
     _clear(monkeypatch)
-    assert build_copilot(Settings()) is None
+    assert build_copilot(Settings(), cli_available=lambda: False) is None
+
+
+def test_build_copilot_uses_cli_backend_when_keyless_and_cli_present(monkeypatch):
+    # The "Claude Code way": no API key, but the local claude CLI is available.
+    from app.reasoning.llm import ClaudeCliClient
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
+    cp = build_copilot(Settings(), cli_available=lambda: True)
+    assert isinstance(cp, Copilot)
+    assert isinstance(cp._engine._llm, ClaudeCliClient)
+
+
+def test_build_copilot_sdk_backend_requires_key(monkeypatch):
+    # Explicitly asking for the SDK backend with no key degrades gracefully.
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_LLM_BACKEND", "sdk")
+    assert build_copilot(Settings(), cli_available=lambda: True) is None
 
 
 def test_build_copilot_builds_replay_with_key(monkeypatch):
+    from app.reasoning.llm import AnthropicClient
+
     _clear(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("COPILOT_DATA_SOURCE", "replay")
     monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
     cp = build_copilot(Settings())
     assert isinstance(cp, Copilot)
+    # a key present prefers the SDK backend under the default "auto" policy
+    assert isinstance(cp._engine._llm, AnthropicClient)
 
 
 def test_build_source_selects_replay_by_default(monkeypatch):
@@ -198,6 +221,13 @@ def test_build_source_selects_datadog_when_configured(monkeypatch):
     monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
     monkeypatch.setenv("DATADOG_API_KEY", "dd-api")
     monkeypatch.setenv("DATADOG_APP_KEY", "dd-app")
+    assert isinstance(_build_source(Settings()), LiveDatadogAdapter)
+
+
+def test_build_source_selects_datadog_with_access_token(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
+    monkeypatch.setenv("DATADOG_ACCESS_TOKEN", "pat-xyz")
     assert isinstance(_build_source(Settings()), LiveDatadogAdapter)
 
 

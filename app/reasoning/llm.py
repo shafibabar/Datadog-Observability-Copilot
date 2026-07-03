@@ -1,16 +1,26 @@
 """LLM client seam.
 
 `LLMClient` is the interface the reasoning engine depends on, so tests inject a
-fake and the engine never touches the network. `AnthropicClient` is the real
-implementation (Claude via the Anthropic SDK); the underlying SDK client is
-injectable so even the wrapper is unit-tested without a key. `extract_json`
-robustly pulls a JSON object out of a model response (fenced or prose-wrapped).
+fake and the engine never touches the network. Two real implementations sit
+behind it:
+
+- `AnthropicClient` — Claude via the Anthropic SDK (needs an ANTHROPIC_API_KEY);
+  the underlying SDK client is injectable so even the wrapper is unit-tested.
+- `ClaudeCliClient` — the "Claude Code way": shells out to the local `claude`
+  CLI in headless mode, reusing the user's existing Claude Code login, so **no
+  API key is required**. The subprocess runner is injectable so tests never
+  spawn a real process.
+
+`extract_json` robustly pulls a JSON object out of a model response (fenced or
+prose-wrapped).
 """
 from __future__ import annotations
 
 import json
 import re
-from typing import Protocol
+import shutil
+import subprocess
+from typing import Callable, Protocol
 
 
 class LLMClient(Protocol):
@@ -69,3 +79,50 @@ class AnthropicClient:
             messages=[{"role": "user", "content": user}],
         )
         return "".join(getattr(block, "text", "") for block in msg.content)
+
+
+def cli_available() -> bool:
+    """True when the `claude` CLI is on PATH, so the keyless backend is usable.
+    Never raises — safe to call during startup capability checks."""
+    return shutil.which("claude") is not None
+
+
+def _default_runner(cmd: list[str], timeout: float) -> str:
+    """Run a subprocess and return its stdout, raising on a non-zero exit."""
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"claude CLI failed (exit {proc.returncode}): {proc.stderr.strip()}"
+        )
+    return proc.stdout
+
+
+class ClaudeCliClient:
+    """Claude via the local `claude` CLI in headless (`-p`) mode.
+
+    Uses the user's existing Claude Code authentication, so no API key is
+    needed. `runner` is injectable so tests never spawn a real process.
+    """
+
+    def __init__(
+        self,
+        model_fast: str,
+        model_deep: str,
+        runner: Callable[[list[str], float], str] | None = None,
+        timeout: float = 120.0,
+    ) -> None:
+        self._model_fast = model_fast
+        self._model_deep = model_deep
+        self._runner = runner or _default_runner
+        self._timeout = timeout
+
+    def complete(self, system: str, user: str, deep: bool = False) -> str:
+        model = self._model_deep if deep else self._model_fast
+        cmd = [
+            "claude",
+            "-p", user,
+            "--append-system-prompt", system,
+            "--model", model,
+            "--output-format", "text",
+        ]
+        return self._runner(cmd, self._timeout).strip()

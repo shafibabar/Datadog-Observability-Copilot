@@ -4,13 +4,20 @@ reconstruction, evidence catalog, the LLM-client seam, and the engine.
 Claude is fully mocked (FakeLLM / fake Anthropic client) — no key, no network,
 no spend. Written test-first (TDD red) before the implementation exists.
 """
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from app.reasoning.engine import ReasoningEngine
 from app.reasoning.evidence import build_evidence_catalog
-from app.reasoning.llm import AnthropicClient, extract_json
+from app.reasoning.llm import (
+    AnthropicClient,
+    ClaudeCliClient,
+    _default_runner,
+    cli_available,
+    extract_json,
+)
 from app.reasoning.models import (
     Confidence,
     Hypothesis,
@@ -115,6 +122,53 @@ def test_anthropic_client_selects_model_and_returns_text():
     assert calls[0]["model"] == "deep-m"
     c.complete("sys", "usr")
     assert calls[1]["model"] == "fast-m"
+
+
+# --- Claude CLI client (the keyless "Claude Code" backend) ----------------
+
+def test_claude_cli_client_invokes_cli_and_selects_model():
+    seen = []
+
+    def runner(cmd, timeout):
+        seen.append(cmd)
+        return "  reasoned answer\n"
+
+    c = ClaudeCliClient(model_fast="fast-m", model_deep="deep-m", runner=runner)
+
+    # returns trimmed stdout; no API key involved
+    assert c.complete("sys", "usr", deep=True) == "reasoned answer"
+    deep_cmd = seen[0]
+    assert deep_cmd[0] == "claude"
+    assert "-p" in deep_cmd and "usr" in deep_cmd          # user prompt passed
+    assert "sys" in deep_cmd                                # system prompt passed
+    assert "deep-m" in deep_cmd                             # deep selects deep model
+
+    c.complete("sys", "usr")                                # fast path
+    assert "fast-m" in seen[1]
+
+
+def test_claude_cli_client_surfaces_runner_failure():
+    def runner(cmd, timeout):
+        raise RuntimeError("claude CLI failed (1): not logged in")
+
+    with pytest.raises(RuntimeError):
+        ClaudeCliClient("f", "d", runner=runner).complete("s", "u")
+
+
+def test_default_runner_runs_a_real_process():
+    # Uses the running Python as a stand-in CLI — portable, no network, no claude needed.
+    out = _default_runner([sys.executable, "-c", "import sys; sys.stdout.write('ok')"], 30)
+    assert out == "ok"
+
+
+def test_default_runner_raises_on_nonzero_exit():
+    with pytest.raises(RuntimeError):
+        _default_runner([sys.executable, "-c", "import sys; sys.stderr.write('boom'); sys.exit(3)"], 30)
+
+
+def test_cli_available_is_a_bool():
+    # Detection must never raise regardless of whether `claude` is installed.
+    assert isinstance(cli_available(), bool)
 
 
 # --- engine ---------------------------------------------------------------
