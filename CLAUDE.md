@@ -4,7 +4,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-This is a **greenfield repository**. As of this writing it contains only the project charter (`OBSERVABILITY_COPILOT_KICKOFF.md`), `README.md`, and `LICENSE` — there is no application code, build tooling, or tests yet. There are therefore no build/lint/test commands to document; the tech stack has not been chosen and is an explicit approval-gated decision (kickoff §9). Read `OBSERVABILITY_COPILOT_KICKOFF.md` in full before doing anything — it is the binding project charter, not background reading.
+**Iteration 0 is complete and Iteration 1 is in progress.** A coherent, runnable four-layer slice exists (telemetry → reasoning → workspace → presentation), plus a separate vibe-coding **metrics** subsystem. The suite is **143/143 green** (~99% coverage on the product app). Read `OBSERVABILITY_COPILOT_KICKOFF.md` (the binding charter) and `docs/context/PROJECT.md` + `docs/context/STATE.md` (the authoritative live status) before doing anything — treat those docs as more current than this section if they disagree.
+
+**Approved stack (kickoff §9 gate cleared):** Python **3.14** (local env is 3.14-only, no Rust toolchain) · FastAPI + Uvicorn · Anthropic SDK · Pydantic · SQLite (stdlib) · dependency-free browser UI (static HTML/CSS/JS, no build step, no Jinja2). Dependencies are pinned to versions with prebuilt 3.14 wheels — see `requirements.txt`. **No new dependency may be added without explicit approval** (kickoff §2).
+
+## Commands
+
+All commands assume the venv is active: `source .venv/bin/activate` (prompt shows `(.venv)`). First-time setup and the full run/demo walkthrough live in `README.md`.
+
+```bash
+# Install (app only / app+test)
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Run the product app → http://127.0.0.1:8000  (needs ANTHROPIC_API_KEY in .env; degrades gracefully without)
+python -m uvicorn app.main:app --port 8000
+
+# Run the metrics dashboard → http://127.0.0.1:8055  (stdlib collector; no key needed)
+python -m uvicorn metrics.dashboard:app --port 8055
+
+# Tests (LLM is faked — no API key, no network, no spend)
+pytest                                                  # full suite
+pytest -q                                               # quiet
+pytest tests/test_config.py::test_defaults_when_unset   # a single test
+pytest --cov=app                                        # with coverage
+```
+
+Tests are marked `@pytest.mark.pending` when written red-ahead-of-implementation (TDD). The regression invariant is binding: **once green, always green** — every step runs the full suite before proceeding. See `docs/context/TESTING.md`.
+
+## Code layout
+
+Four deliberately separable layers (a real backend, more personas/artifacts, and downstream integrations must slot in without rewrites):
+
+- **`app/telemetry/`** — `DataSource` interface (`base.py`) over normalized timestamped events. `ReplayAdapter` (`replay.py`) scripts the canonical deployment-induced latency incident for a reliable demo; `LiveDatadogAdapter` (`datadog.py`) is a read-only Datadog REST adapter. Selected by `COPILOT_DATA_SOURCE` (`replay` default / `datadog`).
+- **`app/reasoning/`** — `ReasoningEngine.investigate(question, history=...)` (`engine.py`) calls Claude (behind the `LLMClient` seam in `llm.py`, faked in tests) and assembles a structured `Investigation` of reasoning objects (claim · category fact/hypothesis/recommendation/unknown · confidence · evidence pointers), an ordered `timeline.py`, and an `evidence.py` catalog. Conclusions are grounded in evidence; invalid evidence pointers are filtered.
+- **`app/workspace/`** — the Investigation Workspace: SQLite **append-with-history** store (`store.py`, versioned snapshots + `messages`/`conversations` tables) and a registry-driven `sections.py` (`serialize_sections()` → JSON for the live panel). This is the architectural center of gravity — a living document, not chat-derived.
+- **`app/` presentation & orchestration** — `main.py` (FastAPI: `/api/conversations[/{id}[/chat|/artifact]]`, `/api/status`, `/healthz`), `copilot.py` (`Copilot` conversation-aware service joining the three layers; factory `build_copilot(settings)`), `personas.py` (registry of 5 personas; `render()` re-frames the **same facts** deterministically with **no LLM call**), `artifacts.py` (registry of `ArtifactSpec` transforms over the Investigation, `to_markdown()`; Incident Summary built), `config.py` (secret loading — secrets never touch git or the DB), `web/` (static UI).
+- **`metrics/`** — separate vibe-coding metrics subsystem (not part of the product). `collector.py` (stdlib-only) is run by the **`Stop` hook** in `.claude/settings.json` and appends one record per prompt cycle to `prompts.jsonl`; `analytics.py` is a tolerant loader/aggregator; `dashboard.py` + `static/` serve a dependency-free canvas dashboard.
+
+The **persona system, Workspace sections, and artifact types are registry/config-driven, not hard-coded** (kickoff §8) — they are designed to grow. Keep that seam intact when extending.
 
 ## Operating model (non-negotiable — kickoff §2)
 
