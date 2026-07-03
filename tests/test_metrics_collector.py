@@ -133,6 +133,23 @@ def test_count_new_tests():
     assert C.count_new_tests(diff) == 2
 
 
+def test_count_tests_counts_defined_test_functions(tmp_path):
+    tdir = tmp_path / "repo" / "tests"
+    tdir.mkdir(parents=True)
+    (tdir / "test_a.py").write_text(
+        "def test_one():\n    assert 1\n"
+        "def helper():\n    pass\n"                 # not a test
+        "async def test_two():\n    assert 1\n"
+    )
+    (tdir / "test_b.py").write_text("def test_three():\n    assert 1\n")
+    (tdir / "notes.txt").write_text("def test_ignored():\n")  # non-.py ignored
+    assert C.count_tests(str(tmp_path / "repo")) == 3
+
+
+def test_count_tests_missing_dir_is_zero(tmp_path):
+    assert C.count_tests(str(tmp_path / "no_such_repo")) == 0
+
+
 # ---------- records: indexing, dedupe, shape ----------
 
 def test_next_index():
@@ -169,6 +186,18 @@ def test_build_record_implementation_includes_git_stats():
     assert rec["implementation"]["files_created"] == 1
     assert rec["implementation"]["tests_added"] == 4
     assert rec["implementation"]["docs_context_updated"] == ["STATE.md"]
+
+
+def test_build_record_surfaces_tests_passing():
+    cyc = {"prompt_ts": "a", "response_ts": "b", "summary": "build",
+           "tokens": {"input": 1, "output": 2, "cache_read": 0, "cache_creation": 0, "total": 3},
+           "mutated": True}
+    gs = {"tests_run": 164, "tests_passing": 164, "tests_failing": 0,
+          "tests_added": 4, "docs_context_updated": []}
+    rec = C.build_record(cyc, index=1, session_id="s", git_stats=gs)
+    assert rec["implementation"]["tests_run"] == 164
+    assert rec["implementation"]["tests_passing"] == 164
+    assert rec["implementation"]["tests_failing"] == 0
 
 
 # ---------- git integration (real temp repo) ----------
@@ -228,6 +257,19 @@ def test_git_turn_stats_only_counts_new_work_since_baseline(repo):
         f.write("c = 3\n")
     stats2, _ = C.git_turn_stats(repo, base1)
     assert stats2["lines_added"] == 1
+
+
+def test_git_turn_stats_records_current_test_total(repo):
+    head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    os.makedirs(os.path.join(repo, "tests"))
+    with open(os.path.join(repo, "tests", "test_x.py"), "w") as f:
+        f.write("def test_a():\n    assert 1\n\n\ndef test_b():\n    assert 1\n")
+    stats, _ = C.git_turn_stats(repo, {"head": head, "worktree": {}})
+    # current passing total = defined test functions in tests/ (green invariant)
+    assert stats["tests_run"] == 2
+    assert stats["tests_passing"] == 2
+    assert stats["tests_failing"] == 0
 
 
 # ---------- end-to-end collect ----------

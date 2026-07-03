@@ -94,16 +94,122 @@ function render(data) {
   document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
 }
 
+/* ---- Timeline tab: the same metric families, rolled up by calendar day ---- */
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function renderTimeline(data) {
+  const days = data.by_day || [];
+  const ts = data.timeline_summary || {};
+  const labels = days.map(d => d.date === "unknown" ? "unknown" : d.date.slice(5)); // MM-DD
+
+  document.getElementById("tcards").innerHTML = [
+    card("First active", ts.first_date || "—"),
+    card("Last active", ts.last_date || "—"),
+    card("Active days", ts.active_days || 0),
+    card("Busiest day", ts.busiest_day ? ts.busiest_day.date : "—",
+         ts.busiest_day ? ts.busiest_day.prompts + " prompts" : ""),
+  ].join("");
+
+  Charts.bar(document.getElementById("c_day_prompts"), {
+    labels, stacked: true, series: [
+      { name: "planning", color: C[2], data: days.map(d => d.planning_qa) },
+      { name: "implementation", color: C[0], data: days.map(d => d.implementation) },
+    ]
+  });
+
+  Charts.bar(document.getElementById("c_day_tokens"), {
+    labels, stacked: true, series: [
+      { name: "input", color: C[0], data: days.map(d => d.input_tokens) },
+      { name: "output", color: C[1], data: days.map(d => d.output_tokens) },
+    ]
+  });
+
+  Charts.line(document.getElementById("c_day_tests"), {
+    labels, fill: true, series: [
+      { name: "tests passing", color: C[1], data: days.map(d => d.cumulative_peak_tests) },
+    ]
+  });
+
+  Charts.bar(document.getElementById("c_day_lines"), {
+    labels, series: [
+      { name: "added", color: C[1], data: days.map(d => d.lines_added) },
+      { name: "removed", color: C[3], data: days.map(d => d.lines_removed) },
+    ]
+  });
+
+  Charts.bar(document.getElementById("c_day_files"), {
+    labels, stacked: true, series: [
+      { name: "created", color: C[1], data: days.map(d => d.files_created) },
+      { name: "modified", color: C[2], data: days.map(d => d.files_modified) },
+      { name: "deleted", color: C[3], data: days.map(d => d.files_deleted) },
+    ]
+  });
+
+  Charts.line(document.getElementById("c_day_cost"), {
+    labels, fill: true, series: [
+      { name: "cumulative $", color: C[2], data: days.map(d => d.cumulative_cost_usd) },
+    ]
+  });
+
+  const rows = data.prompts || [];
+  const body = rows.map(r => {
+    const dt = r.prompt_ts ? new Date(r.prompt_ts) : null;
+    const when = (dt && !isNaN(dt)) ? dt.toLocaleString() : (r.date || "unknown");
+    const impl = r.intent === "implementation";
+    const tests = r.tests_passing == null ? "—" : r.tests_passing;
+    return `<tr>
+      <td class="num">${r.index}</td>
+      <td>${when}</td>
+      <td><span class="badge ${impl ? "impl" : "plan"}">${impl ? "impl" : "plan"}</span></td>
+      <td class="ell" title="${escapeHtml(r.summary || "")}">${escapeHtml(r.summary || "")}</td>
+      <td class="num">${fmtN(r.total)}</td>
+      <td class="num">${tests}</td>
+      <td class="num pos">${r.lines_added ? "+" + r.lines_added : ""}</td>
+      <td class="num neg">${r.lines_removed ? "−" + r.lines_removed : ""}</td>
+      <td class="num">${r.duration_sec || 0}s</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("tl_table").innerHTML =
+    `<table class="table"><thead><tr>
+       <th class="num">#</th><th>When</th><th>Kind</th><th>Summary</th>
+       <th class="num">Tokens</th><th class="num">Tests</th>
+       <th class="num">+Lines</th><th class="num">−Lines</th><th class="num">Dur</th>
+     </tr></thead><tbody>${body}</tbody></table>`;
+
+  document.getElementById("updated").textContent = "updated " + new Date().toLocaleTimeString();
+}
+
 function fmtN(n) {
   if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + "M";
   if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + "k";
   return "" + n;
 }
 
+/* ---- tabs are switched by CSS (radio :checked); JS only re-renders the now-
+       visible tab so its canvases get a real width. If JS never runs, the tabs
+       still switch — only the chart sizing waits for the next 5s poll. ---- */
+let lastData = null;
+
+function visibleTab() {
+  const r = document.querySelector(".tabradio:checked");
+  return (r && r.dataset.tab) || "overview";
+}
+
+function renderActive() {
+  if (!lastData) return;
+  (visibleTab() === "timeline" ? renderTimeline : render)(lastData);
+}
+
+document.querySelectorAll(".tabradio").forEach(r => r.addEventListener("change", renderActive));
+
 async function refresh() {
   try {
     const r = await fetch("/api/metrics");
-    render(await r.json());
+    lastData = await r.json();
+    renderActive();
   } catch (e) {
     document.getElementById("updated").textContent = "fetch failed";
   }
@@ -115,7 +221,7 @@ function setLive(on) {
   if (on) timer = setInterval(refresh, 5000);
 }
 document.getElementById("auto").addEventListener("change", e => setLive(e.target.checked));
-window.addEventListener("resize", () => refresh());
+window.addEventListener("resize", () => renderActive());
 
 refresh();
 setLive(true);

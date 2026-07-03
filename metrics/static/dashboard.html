@@ -14,20 +14,53 @@
       <label class="live"><input type="checkbox" id="auto" checked /> live</label></div>
   </header>
 
-  <section id="cards" class="cards"></section>
+  <!-- Pure-CSS tabs: the radios drive which .tabview is shown via a :checked ~ sibling
+       rule, so switching works even if JavaScript never runs. The radios/labels/views
+       are siblings under #tabroot, radios first, so the '~' combinator can reach them. -->
+  <div id="tabroot">
+    <input type="radio" name="tab" id="r-overview" class="tabradio" data-tab="overview" checked />
+    <input type="radio" name="tab" id="r-timeline" class="tabradio" data-tab="timeline" />
 
-  <section class="grid">
-    <div class="panel"><h3>Tokens per prompt (input + output)</h3><canvas id="c_tokens"></canvas></div>
-    <div class="panel"><h3>Cumulative tokens</h3><canvas id="c_cumtokens"></canvas></div>
-    <div class="panel"><h3>Cumulative tests passing</h3><canvas id="c_tests"></canvas></div>
-    <div class="panel"><h3>Tests added per prompt</h3><canvas id="c_testsadded"></canvas></div>
-    <div class="panel"><h3>Lines added vs removed</h3><canvas id="c_lines"></canvas></div>
-    <div class="panel"><h3>Files created / modified / deleted</h3><canvas id="c_files"></canvas></div>
-    <div class="panel"><h3>Prompt duration (sec)</h3><canvas id="c_duration"></canvas></div>
-    <div class="panel"><h3>Intent split</h3><canvas id="c_intent"></canvas><div id="lg_intent"></div></div>
-    <div class="panel"><h3>Docs/context updates per file</h3><canvas id="c_docs"></canvas></div>
-    <div class="panel"><h3>Cumulative estimated cost (USD)</h3><canvas id="c_cost"></canvas></div>
-  </section>
+    <nav class="tabs" role="tablist">
+      <label class="tab" for="r-overview">Overview</label>
+      <label class="tab" for="r-timeline">Timeline</label>
+    </nav>
+
+    <div id="tab-overview" class="tabview">
+      <section id="cards" class="cards"></section>
+
+      <section class="grid">
+        <div class="panel"><h3>Tokens per prompt (input + output)</h3><canvas id="c_tokens"></canvas></div>
+        <div class="panel"><h3>Cumulative tokens</h3><canvas id="c_cumtokens"></canvas></div>
+        <div class="panel"><h3>Cumulative tests passing</h3><canvas id="c_tests"></canvas></div>
+        <div class="panel"><h3>Tests added per prompt</h3><canvas id="c_testsadded"></canvas></div>
+        <div class="panel"><h3>Lines added vs removed</h3><canvas id="c_lines"></canvas></div>
+        <div class="panel"><h3>Files created / modified / deleted</h3><canvas id="c_files"></canvas></div>
+        <div class="panel"><h3>Prompt duration (sec)</h3><canvas id="c_duration"></canvas></div>
+        <div class="panel"><h3>Intent split</h3><canvas id="c_intent"></canvas><div id="lg_intent"></div></div>
+        <div class="panel"><h3>Docs/context updates per file</h3><canvas id="c_docs"></canvas></div>
+        <div class="panel"><h3>Cumulative estimated cost (USD)</h3><canvas id="c_cost"></canvas></div>
+      </section>
+    </div>
+
+    <div id="tab-timeline" class="tabview">
+      <section id="tcards" class="cards"></section>
+
+      <section class="grid">
+        <div class="panel"><h3>Prompts per day (planning + implementation)</h3><canvas id="c_day_prompts"></canvas></div>
+        <div class="panel"><h3>Tokens per day (input + output)</h3><canvas id="c_day_tokens"></canvas></div>
+        <div class="panel"><h3>Cumulative tests passing over time</h3><canvas id="c_day_tests"></canvas></div>
+        <div class="panel"><h3>Lines added vs removed per day</h3><canvas id="c_day_lines"></canvas></div>
+        <div class="panel"><h3>Files created / modified / deleted per day</h3><canvas id="c_day_files"></canvas></div>
+        <div class="panel"><h3>Cumulative estimated cost (USD) over time</h3><canvas id="c_day_cost"></canvas></div>
+      </section>
+
+      <section class="grid">
+        <div class="panel panel-wide"><h3>Prompt log — exact timestamps</h3>
+          <div class="table-wrap" id="tl_table"></div></div>
+      </section>
+    </div>
+  </div>
 
   <footer class="foot">Reads <code>metrics/prompts.jsonl</code> · estimated cost is approximate
     (records don't store per-call model)</footer>

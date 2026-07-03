@@ -137,6 +137,31 @@ def count_new_tests(diff_text: str) -> int:
     return n
 
 
+def count_tests(repo: str) -> int:
+    """Current total of defined test functions under `tests/`.
+
+    A fast, stdlib-only proxy for the passing count: the suite's binding invariant
+    is 'once green, always green' (every step runs the full suite; green tests
+    never break), so the number of defined tests == the number passing. We do NOT
+    run pytest in the hook — that would need the venv, add latency to every turn,
+    and could record red counts mid-edit. Missing tests/ dir → 0."""
+    root = os.path.join(repo, "tests")
+    n = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for fname in files:
+            if not fname.endswith(".py"):
+                continue
+            try:
+                text = open(os.path.join(dirpath, fname), encoding="utf-8", errors="ignore").read()
+            except OSError:
+                continue
+            for line in text.splitlines():
+                s = line.strip()
+                if s.startswith("def test_") or s.startswith("async def test_"):
+                    n += 1
+    return n
+
+
 def _git(repo: str, *args: str) -> str:
     try:
         return subprocess.run(["git", "-C", repo, *args],
@@ -191,6 +216,11 @@ def git_turn_stats(repo: str, baseline: dict) -> tuple[dict, dict]:
         "dependencies_installed": _deps_delta(this_turn, repo, base_head),
         "commit": head,
     }
+    # Current suite size == passing count under the green invariant (see count_tests).
+    tests_total = count_tests(repo)
+    stats["tests_run"] = tests_total
+    stats["tests_passing"] = tests_total
+    stats["tests_failing"] = 0
     # New baseline is the working-tree diff relative to the *current* head.
     wt_now, _, _ = _diffmap_to_worktree(repo, head or _EMPTY_TREE)
     return stats, {"head": head, "worktree": wt_now}

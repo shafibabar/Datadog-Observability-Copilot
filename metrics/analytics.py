@@ -9,10 +9,21 @@ tested.
 from __future__ import annotations
 
 import json
+import re
 
 # Approximate USD per 1M tokens (Claude Sonnet-class public rates) — the records
 # don't store the model, so cost is an ESTIMATE for trend/scale, not billing.
 _RATE_PER_M = {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_creation": 3.75}
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def date_of(prompt_ts) -> str:
+    """Derive a YYYY-MM-DD calendar date from an ISO-8601 timestamp. Anything
+    missing or malformed maps to 'unknown' so a bad record can't break grouping."""
+    if isinstance(prompt_ts, str) and _DATE_RE.match(prompt_ts):
+        return prompt_ts[:10]
+    return "unknown"
 
 
 def load_records(path: str) -> list[dict]:
@@ -121,6 +132,7 @@ def aggregate(records: list[dict]) -> dict:
         row = {
             "index": r["index"], "intent": r["intent"], "kind": r["kind"],
             "summary": r["summary"], "duration_sec": r["duration_sec"],
+            "prompt_ts": r["prompt_ts"], "date": date_of(r["prompt_ts"]),
             "input": tk["input"], "output": tk["output"],
             "cache_read": tk["cache_read"], "cache_creation": tk["cache_creation"],
             "total": tk["total"], "cumulative_output": cum_output,
@@ -132,6 +144,7 @@ def aggregate(records: list[dict]) -> dict:
             "files_created": impl["files_created"] if impl else 0,
             "files_modified": impl["files_modified"] if impl else 0,
             "files_deleted": impl["files_deleted"] if impl else 0,
+            "docs_updates": len(impl["docs_context_updated"]) if impl else 0,
         }
         prompts.append(row)
 
@@ -159,6 +172,7 @@ def aggregate(records: list[dict]) -> dict:
 
     summary["intent_split"] = intent_split
     summary["kind_split"] = kind_split
+    by_day, timeline_summary = _group_by_day(prompts)
     return {
         "summary": summary,
         "prompts": prompts,
@@ -168,7 +182,67 @@ def aggregate(records: list[dict]) -> dict:
             "per_file": docs_per_file,
             "cumulative_over_time": docs_over_time,
         },
+        "by_day": by_day,
+        "timeline_summary": timeline_summary,
     }
+
+
+def _group_by_day(prompts: list[dict]) -> tuple[list[dict], dict]:
+    """Roll the per-prompt rows up by calendar date for the Timeline tab. Returns
+    (by_day, timeline_summary). The 'unknown' bucket (records with no valid
+    timestamp) always sorts last and is excluded from the summary's date span."""
+    buckets: dict[str, dict] = {}
+    for row in prompts:
+        d = row["date"]
+        b = buckets.get(d)
+        if b is None:
+            b = buckets[d] = {
+                "date": d, "prompts": 0, "planning_qa": 0, "implementation": 0,
+                "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+                "cost_usd": 0.0, "tests_added": 0, "peak_tests_passing": 0,
+                "lines_added": 0, "lines_removed": 0,
+                "files_created": 0, "files_modified": 0, "files_deleted": 0,
+                "docs_updates": 0, "duration_sec": 0,
+            }
+        b["prompts"] += 1
+        b[row["intent"]] = b.get(row["intent"], 0) + 1
+        b["input_tokens"] += row["input"]
+        b["output_tokens"] += row["output"]
+        b["total_tokens"] += row["total"]
+        b["cost_usd"] = round(b["cost_usd"] + row["cost_usd"], 4)
+        b["tests_added"] += row["tests_added"]
+        if row["tests_passing"] is not None:
+            b["peak_tests_passing"] = max(b["peak_tests_passing"], row["tests_passing"])
+        b["lines_added"] += row["lines_added"]
+        b["lines_removed"] += row["lines_removed"]
+        b["files_created"] += row["files_created"]
+        b["files_modified"] += row["files_modified"]
+        b["files_deleted"] += row["files_deleted"]
+        b["docs_updates"] += row["docs_updates"]
+        b["duration_sec"] += row["duration_sec"]
+
+    real = sorted(k for k in buckets if k != "unknown")
+    order = real + (["unknown"] if "unknown" in buckets else [])
+
+    by_day: list[dict] = []
+    cum_cost = 0.0
+    cum_peak = 0
+    for k in order:
+        b = buckets[k]
+        cum_cost = round(cum_cost + b["cost_usd"], 4)
+        cum_peak = max(cum_peak, b["peak_tests_passing"])
+        b["cumulative_cost_usd"] = cum_cost
+        b["cumulative_peak_tests"] = cum_peak
+        by_day.append(b)
+
+    busiest = max((buckets[k] for k in real), key=lambda b: b["prompts"], default=None)
+    timeline_summary = {
+        "first_date": real[0] if real else None,
+        "last_date": real[-1] if real else None,
+        "active_days": len(real),
+        "busiest_day": {"date": busiest["date"], "prompts": busiest["prompts"]} if busiest else None,
+    }
+    return by_day, timeline_summary
 
 
 def load_and_aggregate(path: str) -> dict:

@@ -18,6 +18,28 @@ body {
 .meta { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
 .live { display: flex; align-items: center; gap: 5px; cursor: pointer; }
 
+/* Pure-CSS tabs (radio hack): switching is declarative — no JS required. */
+.tabradio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.tabs { display: flex; gap: 6px; padding: 12px 22px 0; background: var(--bg); }
+.tab {
+  background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-bottom: none;
+  border-radius: 10px 10px 0 0; padding: 8px 18px; font-size: 13px; font-weight: 600;
+  cursor: pointer; user-select: none;
+}
+.tab:hover { color: var(--text); }
+/* views hidden by default; the checked radio reveals its matching view */
+.tabview { display: none; }
+#r-overview:checked ~ #tab-overview { display: block; }
+#r-timeline:checked ~ #tab-timeline { display: block; }
+/* highlight the active tab's label */
+#r-overview:checked ~ .tabs label[for="r-overview"],
+#r-timeline:checked ~ .tabs label[for="r-timeline"] {
+  background: var(--panel-2); color: var(--text); border-color: var(--accent);
+}
+/* keyboard focus visibility on the (visually hidden) radios */
+.tabradio:focus-visible ~ .tabs label[for="r-overview"],
+.tabradio:focus-visible ~ .tabs label[for="r-timeline"] { outline: 2px solid var(--accent); }
+
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 18px 22px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
 .card-val { font-size: 24px; font-weight: 700; }
@@ -43,3 +65,17 @@ canvas { width: 100%; display: block; }
 
 .foot { color: var(--faint); font-size: 12px; padding: 0 22px 28px; }
 .foot code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
+
+.panel-wide { grid-column: 1 / -1; }
+.table-wrap { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.table th, .table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.table th { color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+.table tbody tr:hover { background: var(--panel-2); }
+.table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.ell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+.table .pos { color: #2ec16b; }
+.table .neg { color: #ef5350; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
+.badge.impl { background: #7c5cff22; color: #b9a7ff; }
+.badge.plan { background: #38bdf822; color: #8fd6f5; }

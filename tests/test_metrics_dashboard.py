@@ -130,6 +130,102 @@ def test_aggregate_includes_cost_estimate():
     assert "cost_usd" in agg["prompts"][0]
 
 
+# ---------- timeline / by-day (Tab 2) ----------
+
+def _dated(index, date, intent="implementation", hh=12, **impl):
+    """A record stamped with a prompt timestamp on the given calendar date."""
+    r = _impl_rec(index, **impl) if intent == "implementation" else _plan_rec(index)
+    r["prompt_ts"] = f"{date}T{hh:02d}:00:00.000Z"
+    return r
+
+
+def test_prompt_rows_include_date_and_timestamp():
+    recs = [_dated(1, "2026-06-26"), _plan_rec(2)]  # rec 2 has no prompt_ts
+    rows = A.aggregate(recs)["prompts"]
+    assert rows[0]["date"] == "2026-06-26"
+    assert rows[0]["prompt_ts"] == "2026-06-26T12:00:00.000Z"
+    assert rows[1]["date"] == "unknown"
+    assert rows[1]["prompt_ts"] is None
+
+
+def test_by_day_groups_and_orders_chronologically():
+    recs = [_dated(3, "2026-06-28"), _dated(1, "2026-06-26"), _dated(2, "2026-06-26")]
+    days = A.aggregate(recs)["by_day"]
+    assert [d["date"] for d in days] == ["2026-06-26", "2026-06-28"]
+    assert days[0]["prompts"] == 2
+    assert days[1]["prompts"] == 1
+
+
+def test_by_day_sums_metrics_per_day():
+    recs = [
+        _dated(1, "2026-06-26", tests_added=2, lines_added=100, lines_removed=10, files_created=3),
+        _dated(2, "2026-06-26", tests_added=3, lines_added=50, files_modified=2),
+        _dated(3, "2026-06-27", tests_added=1, lines_added=5),
+    ]
+    days = {d["date"]: d for d in A.aggregate(recs)["by_day"]}
+    d26 = days["2026-06-26"]
+    assert d26["tests_added"] == 5
+    assert d26["lines_added"] == 150
+    assert d26["files_created"] == 3 and d26["files_modified"] == 2
+    # each _impl_rec carries input 10 / output 20 / total 36
+    assert d26["input_tokens"] == 20 and d26["output_tokens"] == 40 and d26["total_tokens"] == 72
+    assert days["2026-06-27"]["lines_added"] == 5
+
+
+def test_by_day_peak_and_cumulative_tests():
+    recs = [
+        _dated(1, "2026-06-26", tests_passing=11),
+        _dated(2, "2026-06-26", tests_passing=24),
+        _dated(3, "2026-06-27", intent="planning_qa"),  # no impl -> no tests that day
+    ]
+    days = {d["date"]: d for d in A.aggregate(recs)["by_day"]}
+    assert days["2026-06-26"]["peak_tests_passing"] == 24
+    assert days["2026-06-26"]["cumulative_peak_tests"] == 24
+    assert days["2026-06-27"]["peak_tests_passing"] == 0        # none that day
+    assert days["2026-06-27"]["cumulative_peak_tests"] == 24    # carried forward
+
+
+def test_by_day_cumulative_cost_is_monotonic():
+    recs = [_dated(1, "2026-06-26", tests_passing=1),
+            _dated(2, "2026-06-27", tests_passing=1),
+            _dated(3, "2026-06-28", tests_passing=1)]
+    agg = A.aggregate(recs)
+    cums = [d["cumulative_cost_usd"] for d in agg["by_day"]]
+    assert cums == sorted(cums)                                  # non-decreasing
+    assert cums[-1] == pytest.approx(agg["summary"]["estimated_cost_usd"], abs=1e-4)
+
+
+def test_timeline_summary_first_last_active_busiest():
+    recs = [_dated(1, "2026-06-26"), _dated(2, "2026-06-28"),
+            _dated(3, "2026-06-28"), _dated(4, "2026-06-28")]
+    ts = A.aggregate(recs)["timeline_summary"]
+    assert ts["first_date"] == "2026-06-26"
+    assert ts["last_date"] == "2026-06-28"
+    assert ts["active_days"] == 2
+    assert ts["busiest_day"] == {"date": "2026-06-28", "prompts": 3}
+
+
+def test_by_day_tolerates_missing_timestamps():
+    recs = [_dated(1, "2026-06-26"), _plan_rec(2), {"index": 3}]  # 2 and 3 lack prompt_ts
+    agg = A.aggregate(recs)                                        # must not raise
+    days = {d["date"]: d for d in agg["by_day"]}
+    assert "2026-06-26" in days and "unknown" in days
+    assert days["unknown"]["prompts"] == 2
+    assert agg["by_day"][-1]["date"] == "unknown"                 # unknown sorts last
+    # the summary ignores the unknown bucket
+    assert agg["timeline_summary"]["active_days"] == 1
+    assert agg["timeline_summary"]["first_date"] == "2026-06-26"
+
+
+def test_aggregate_empty_has_empty_timeline():
+    agg = A.aggregate([])
+    assert agg["by_day"] == []
+    ts = agg["timeline_summary"]
+    assert ts["first_date"] is None and ts["last_date"] is None
+    assert ts["active_days"] == 0
+    assert ts["busiest_day"] is None
+
+
 # ---------- FastAPI surface ----------
 
 @pytest.fixture
@@ -165,3 +261,53 @@ def test_dashboard_index_served(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "Vibe" in r.text or "Metrics" in r.text
+
+
+def test_api_metrics_includes_timeline(client):
+    data = client.get("/api/metrics").json()
+    assert "by_day" in data
+    assert "timeline_summary" in data
+
+
+def test_dashboard_html_has_two_tabs(client):
+    html = client.get("/").text
+    assert "Overview" in html
+    assert "Timeline" in html
+    assert "tab-timeline" in html
+
+
+# ---------- tab switching (must not depend on JS running) ----------
+
+import re
+from pathlib import Path
+
+_STATIC = Path(__file__).resolve().parent.parent / "metrics" / "static"
+
+
+def test_tabs_are_radio_driven_with_one_default_checked():
+    html = (_STATIC / "dashboard.html").read_text()
+    radios = re.findall(r"<input[^>]*class=\"tabradio\"[^>]*>", html)
+    assert len(radios) == 2                              # two real tabs
+    assert sum("checked" in r for r in radios) == 1      # exactly one active by default
+    # labels point at the radios; views exist with matching ids
+    for key in ("overview", "timeline"):
+        assert f'id="r-{key}"' in html
+        assert f'for="r-{key}"' in html
+        assert f'id="tab-{key}"' in html
+
+
+def test_tab_markup_order_supports_sibling_selector():
+    # The '~' combinator needs radios BEFORE the views, sharing a parent.
+    html = (_STATIC / "dashboard.html").read_text()
+    assert html.index('id="r-timeline"') < html.index('id="tab-overview"')
+    assert html.index('id="tab-overview"') < html.index('id="tab-timeline"')
+
+
+def test_tab_switching_is_pure_css_no_js_required():
+    css = (_STATIC / "dashboard.css").read_text()
+    norm = css.replace(" ", "")
+    assert ".tabview{display:none" in norm                 # views hidden by default
+    # a checked-radio sibling rule reveals each view — switching needs no JavaScript
+    assert "#r-overview:checked~#tab-overview" in norm
+    assert "#r-timeline:checked~#tab-timeline" in norm
+    assert ".tabradio" in css                               # the radios themselves are hidden
