@@ -146,6 +146,13 @@ def chat(cid: str, req: ChatRequest) -> JSONResponse:
         return JSONResponse(copilot.rerender(cid, req.persona))
     except KeyError:
         return JSONResponse({"error": f"Unknown conversation: {cid!r}"}, status_code=404)
+    except Exception as exc:  # noqa: BLE001
+        # Reasoning/data-source failures (LLM CLI error, Datadog query error, …)
+        # shouldn't crash the UI — return the reason so it can be shown in-chat.
+        return JSONResponse(
+            {"error": f"The reasoning backend failed: {exc}", "configured": True},
+            status_code=502,
+        )
 
 
 @app.patch("/api/conversations/{cid}")

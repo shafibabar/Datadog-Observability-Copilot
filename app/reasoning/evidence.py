@@ -12,6 +12,11 @@ from app.reasoning.models import Evidence
 from app.telemetry.base import DataSource
 from app.telemetry.models import Scope
 
+# Cap how many events enter the prompt. A live source can return thousands; an
+# unbounded catalog makes the prompt huge, slow, and expensive. We keep the most
+# recent events (the incident is "now"-anchored) and note any truncation.
+MAX_CATALOG_EVENTS = 60
+
 
 def build_evidence_catalog(
     source: DataSource, scope: Scope | None = None
@@ -19,7 +24,11 @@ def build_evidence_catalog(
     catalog: dict[str, Evidence] = {}
     lines: list[str] = []
 
-    for e in source.get_events(scope=scope):
+    events = source.get_events(scope=scope)
+    if len(events) > MAX_CATALOG_EVENTS:
+        events = sorted(events, key=lambda e: e.timestamp)[-MAX_CATALOG_EVENTS:]
+        lines.append(f"(showing the {MAX_CATALOG_EVENTS} most recent events of many)")
+    for e in events:
         eid = f"evt:{e.id}"
         detail = f"[{e.timestamp:%H:%M}] {e.title} (source={e.source.value}, severity={e.severity.value})"
         catalog[eid] = Evidence(id=eid, kind="event", ref=e.id, detail=detail)

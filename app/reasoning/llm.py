@@ -88,12 +88,14 @@ def cli_available() -> bool:
 
 
 def _default_runner(cmd: list[str], timeout: float) -> str:
-    """Run a subprocess and return its stdout, raising on a non-zero exit."""
+    """Run a subprocess and return its stdout, raising on a non-zero exit.
+
+    The `claude` CLI often writes its error to stdout (not stderr), so include
+    both streams — an empty message here is what makes failures undiagnosable."""
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"claude CLI failed (exit {proc.returncode}): {proc.stderr.strip()}"
-        )
+        detail = (proc.stderr.strip() or proc.stdout.strip() or "(no output on stderr or stdout)")
+        raise RuntimeError(f"claude CLI failed (exit {proc.returncode}): {detail}")
     return proc.stdout
 
 
@@ -125,4 +127,8 @@ class ClaudeCliClient:
             "--model", model,
             "--output-format", "text",
         ]
-        return self._runner(cmd, self._timeout).strip()
+        try:
+            return self._runner(cmd, self._timeout).strip()
+        except RuntimeError as exc:
+            # Surface the model so an invalid/unavailable --model is obvious.
+            raise RuntimeError(f"{exc}  [model={model!r}]") from exc

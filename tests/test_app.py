@@ -183,6 +183,26 @@ def test_delete_unknown_conversation_is_404(wired):
     assert client.delete("/api/conversations/nope").status_code == 404
 
 
+def test_chat_handles_reasoning_failure_gracefully():
+    # A backend failure (e.g. the claude CLI erroring) must return a clean error,
+    # not a 500 stack trace to the UI.
+    class BoomLLM:
+        def complete(self, system, user, deep=False):
+            raise RuntimeError("claude CLI failed (exit 1): (no output)  [model='x']")
+
+    src = ReplayAdapter()
+    engine = ReasoningEngine(src, BoomLLM())
+    app.state.copilot = Copilot(src, engine, WorkspaceStore(":memory:"), incident_id="t")
+    try:
+        cid = _new_conversation()
+        r = client.post(f"/api/conversations/{cid}/chat",
+                        json={"message": "Why is checkout slow?", "persona": "sre"})
+        assert r.status_code == 502
+        assert "reasoning backend failed" in r.json()["error"].lower()
+    finally:
+        app.state.copilot = None
+
+
 def test_artifact_endpoint_generates_incident_summary(wired):
     cid = _new_conversation()
     client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})

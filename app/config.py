@@ -42,7 +42,9 @@ class Settings:
     # Anthropic / Claude
     anthropic_api_key: str = field(default_factory=lambda: _get("ANTHROPIC_API_KEY"))
     model_fast: str = field(default_factory=lambda: _get("COPILOT_MODEL_FAST", "claude-haiku-4-5-20251001"))
-    model_deep: str = field(default_factory=lambda: _get("COPILOT_MODEL_DEEP", "claude-sonnet-4-6"))
+    # NOTE: must be a current, valid model id (e.g. claude-sonnet-5 / claude-opus-4-8).
+    # The CLI rejects an unknown --model with a non-zero exit; override via COPILOT_MODEL_DEEP.
+    model_deep: str = field(default_factory=lambda: _get("COPILOT_MODEL_DEEP", "claude-sonnet-5"))
     # Which LLM backend to use: "auto" (Claude CLI when no key, else SDK), "cli", or "sdk".
     llm_backend: str = field(default_factory=lambda: _get("COPILOT_LLM_BACKEND", "auto").lower())
 

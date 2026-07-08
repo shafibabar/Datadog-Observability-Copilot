@@ -332,3 +332,58 @@ def test_engine_threads_scope_to_the_source():
 
     assert spy.metric_scopes == [scope]
     assert spy.event_scopes and all(s == scope for s in spy.event_scopes)
+
+
+def test_default_runner_surfaces_stdout_when_stderr_is_empty():
+    # The claude CLI writes some errors to stdout; a failure must not be blank.
+    from app.reasoning.llm import _default_runner
+    cmd = [sys.executable, "-c", "import sys; sys.stdout.write('model not found: xyz'); sys.exit(1)"]
+    with pytest.raises(RuntimeError) as ei:
+        _default_runner(cmd, 10)
+    assert "model not found: xyz" in str(ei.value)
+
+
+def test_cli_client_tags_errors_with_the_model():
+    from app.reasoning.llm import ClaudeCliClient
+
+    def boom(_cmd, _timeout):
+        raise RuntimeError("claude CLI failed (exit 1): (no output)")
+
+    client = ClaudeCliClient(model_fast="f", model_deep="claude-sonnet-5", runner=boom)
+    with pytest.raises(RuntimeError) as ei:
+        client.complete("sys", "user", deep=True)
+    assert "claude-sonnet-5" in str(ei.value)
+
+
+def test_evidence_catalog_caps_events():
+    from datetime import datetime, timedelta, timezone
+
+    from app.reasoning.evidence import MAX_CATALOG_EVENTS, build_evidence_catalog
+    from app.telemetry.base import DataSource
+    from app.telemetry.models import EventSource, MetricSeries, TelemetryEvent
+
+    class ManyEvents(DataSource):
+        source_type = "many"
+
+        def list_metrics(self):
+            return []
+
+        def get_metric(self, metric, start=None, end=None, scope=None):
+            return MetricSeries(metric=metric)
+
+        def get_events(self, start=None, end=None, scope=None):
+            base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            return [
+                TelemetryEvent(id=str(i), timestamp=base + timedelta(minutes=i),
+                               source=EventSource.METRIC, title=f"e{i}")
+                for i in range(200)
+            ]
+
+        def time_range(self):
+            n = datetime(2026, 1, 1, tzinfo=timezone.utc)
+            return n, n
+
+    catalog, context = build_evidence_catalog(ManyEvents())
+    event_ids = [k for k in catalog if k.startswith("evt:")]
+    assert len(event_ids) == MAX_CATALOG_EVENTS      # bounded, not 200
+    assert "most recent events" in context           # truncation is disclosed
