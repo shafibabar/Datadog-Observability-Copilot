@@ -29,14 +29,42 @@ body {
 }
 
 /* ---------- layout ---------- */
+/* 5 columns: sidebar · resizer · main · resizer · workspace.
+   grid-template-columns is set inline by JS (applyLayout) so panels can be
+   dragged and collapsed; the value here is just a pre-JS fallback. */
 .app {
   display: grid;
-  grid-template-columns: 260px 1fr 380px;
+  grid-template-columns: 260px 6px 1fr 6px 380px;
   height: 100vh;
   overflow: hidden;
 }
-.app.ws-hidden { grid-template-columns: 260px 1fr 0; }
-.app.ws-hidden .workspace { display: none; }
+.app.sidebar-collapsed .sidebar { display: none; }
+.app.ws-collapsed .workspace { display: none; }
+
+/* draggable dividers with a collapse chevron */
+.resizer {
+  position: relative;
+  background: var(--border);
+  cursor: col-resize;
+  display: flex; align-items: center; justify-content: center;
+}
+.resizer:hover { background: var(--accent); }
+.app.sidebar-collapsed #resize-left, .app.ws-collapsed #resize-right { cursor: pointer; }
+.collapse {
+  position: absolute;
+  width: 16px; height: 34px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  border-radius: 5px;
+  font-size: 11px; line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 3;
+}
+.collapse:hover { color: var(--text); border-color: var(--accent); }
+.app.sidebar-collapsed #collapse-left { transform: rotate(180deg); }
+.app.ws-collapsed #collapse-right { transform: rotate(180deg); }
 
 /* ---------- sidebar ---------- */
 .sidebar {
@@ -160,10 +188,11 @@ body {
 .evidence li { margin: 4px 0; color: var(--muted); }
 .evidence .ev-kind { color: var(--accent); font-weight: 600; }
 
-/* composer */
+/* composer + controls */
+.composer-area { border-top: 1px solid var(--border); background: var(--panel); }
 .composer {
-  display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border);
-  background: var(--panel); max-width: 800px; width: 100%; margin: 0 auto;
+  display: flex; gap: 10px; padding: 14px 20px 8px;
+  max-width: 900px; width: 100%; margin: 0 auto;
 }
 .composer textarea {
   flex: 1; resize: none; background: var(--panel-2); color: var(--text);
@@ -176,6 +205,87 @@ body {
   padding: 0 22px; font-weight: 600; cursor: pointer;
 }
 .composer button:disabled { opacity: .5; cursor: default; }
+
+/* per-reply copy button */
+.copy-btn {
+  margin-top: 10px; background: transparent; color: var(--faint);
+  border: 1px solid var(--border); border-radius: 7px; padding: 3px 10px;
+  font-size: 11.5px; cursor: pointer; opacity: 0; transition: opacity .12s, color .12s;
+}
+.message.assistant:hover .copy-btn { opacity: 1; }
+.copy-btn:hover { color: var(--text); border-color: var(--accent); }
+
+/* the scope + persona control row (below the prompt) */
+.controls {
+  display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end;
+  max-width: 900px; width: 100%; margin: 0 auto; padding: 4px 20px 8px;
+}
+.control { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+.ctl-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
+.controls select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px; font: inherit; font-size: 12.5px;
+}
+.controls select:focus { outline: none; border-color: var(--accent); }
+.custom-range { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.custom-range label { font-size: 11.5px; color: var(--muted); display: flex; gap: 5px; align-items: center; }
+.custom-range input {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 7px; padding: 5px 7px; font: inherit; font-size: 12px;
+}
+.range-note { font-size: 11px; color: var(--faint); }
+.scope-hint {
+  max-width: 900px; margin: 0 auto; padding: 0 20px 12px;
+  font-size: 11.5px; color: var(--warn); min-height: 4px;
+}
+
+/* multi-select with type-to-filter */
+.ms { position: relative; }
+.ms-btn {
+  width: 100%; text-align: left; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font: inherit;
+  font-size: 12.5px; cursor: pointer;
+}
+.ms-btn.empty { color: var(--faint); }
+.ms-btn:hover { border-color: var(--accent); }
+.ms-panel {
+  position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 20;
+  width: max(220px, 100%); background: var(--panel-3); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: var(--shadow); padding: 8px; max-height: 260px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ms-search {
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 12.5px;
+}
+.ms-search:focus { outline: none; border-color: var(--accent); }
+.ms-list { overflow-y: auto; display: flex; flex-direction: column; }
+.ms-opt {
+  display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px;
+  font-size: 12.5px; cursor: pointer;
+}
+.ms-opt:hover { background: var(--panel-2); }
+.ms-empty { color: var(--faint); font-size: 12px; padding: 8px 6px; }
+
+/* sidebar item menu */
+.convo { display: flex; align-items: center; gap: 4px; }
+.convo-main { flex: 1; min-width: 0; }
+.convo-menu {
+  background: transparent; border: none; color: var(--faint); cursor: pointer;
+  font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 6px; opacity: 0;
+}
+.convo:hover .convo-menu { opacity: 1; }
+.convo-menu:hover { color: var(--text); background: var(--panel-3); }
+.convo-popup {
+  position: fixed; z-index: 50; background: var(--panel-3); border: 1px solid var(--border);
+  border-radius: 9px; box-shadow: var(--shadow); padding: 5px; display: flex; flex-direction: column; min-width: 120px;
+}
+.convo-popup button {
+  background: transparent; border: none; color: var(--text); text-align: left;
+  padding: 7px 10px; border-radius: 6px; font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.convo-popup button:hover { background: var(--panel-2); }
+.convo-popup button.danger { color: var(--err); }
 
 /* ---------- workspace panel ---------- */
 .workspace {
@@ -233,8 +343,3 @@ body {
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: #2c3242; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #39415a; }
-
-@media (max-width: 1100px) {
-  .app { grid-template-columns: 220px 1fr; }
-  .workspace { display: none; }
-}

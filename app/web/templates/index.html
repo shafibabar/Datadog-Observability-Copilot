@@ -24,32 +24,70 @@
       </div>
     </aside>
 
+    <!-- draggable divider + collapse chevron -->
+    <div class="resizer" id="resize-left" title="Drag to resize">
+      <button class="collapse" id="collapse-left" type="button" title="Collapse conversations">‹</button>
+    </div>
+
     <!-- Center: chat -->
     <main class="main">
       <header class="main-head">
         <div id="convo-title" class="convo-title">Investigation</div>
         <div class="head-actions">
-          <label for="persona" class="head-label">Explain as</label>
-          <select id="persona" aria-label="Persona">
-            <option value="support">Support Engineer</option>
-            <option value="sre" selected>Site Reliability Engineer</option>
-            <option value="swe">Software Engineer</option>
-            <option value="pm">Product Manager</option>
-            <option value="leadership">Engineering Leadership</option>
-          </select>
           <button id="gen-summary" class="ghost" type="button">Incident Summary</button>
-          <button id="toggle-workspace" class="ghost icon" type="button" title="Toggle Workspace panel">⧉</button>
         </div>
       </header>
 
       <div id="chat" class="chat"></div>
 
-      <form id="composer" class="composer">
-        <textarea id="input" rows="1"
-          placeholder="Ask about system health, recent changes, or an incident… e.g. “Is the system healthy right now?”"></textarea>
-        <button type="submit" id="send">Send</button>
-      </form>
+      <div class="composer-area">
+        <form id="composer" class="composer">
+          <textarea id="input" rows="1"
+            placeholder="Ask about system health, recent changes, or an incident… e.g. “Is the system healthy right now?”"></textarea>
+          <button type="submit" id="send">Send</button>
+        </form>
+
+        <!-- scope + persona controls, just below the prompt -->
+        <div class="controls" id="controls">
+          <div class="control" id="ctl-env"></div>
+          <div class="control" id="ctl-tenant"></div>
+          <div class="control" id="ctl-duration">
+            <label class="ctl-label" for="duration-select">Duration</label>
+            <select id="duration-select">
+              <option value="1h" selected>Last 1 hour</option>
+              <option value="2h">Last 2 hours</option>
+              <option value="4h">Last 4 hours</option>
+              <option value="8h">Last 8 hours</option>
+              <option value="1d">Last 1 day</option>
+              <option value="2d">Last 2 days</option>
+              <option value="1w">Last 1 week</option>
+              <option value="custom">Custom range…</option>
+            </select>
+            <div id="custom-range" class="custom-range" hidden>
+              <label>From <input type="datetime-local" id="range-start" /></label>
+              <label>To <input type="datetime-local" id="range-end" /></label>
+              <span id="range-note" class="range-note">Max 7 days.</span>
+            </div>
+          </div>
+          <div class="control" id="ctl-persona">
+            <label class="ctl-label" for="persona">Explain as</label>
+            <select id="persona">
+              <option value="support">Support Engineer</option>
+              <option value="sre" selected>Site Reliability Engineer</option>
+              <option value="swe">Software Engineer</option>
+              <option value="pm">Product Manager</option>
+              <option value="leadership">Engineering Leadership</option>
+            </select>
+          </div>
+        </div>
+        <div id="scope-hint" class="scope-hint"></div>
+      </div>
     </main>
+
+    <!-- draggable divider + collapse chevron -->
+    <div class="resizer" id="resize-right" title="Drag to resize">
+      <button class="collapse" id="collapse-right" type="button" title="Collapse workspace">›</button>
+    </div>
 
     <!-- Right: the living Investigation Workspace -->
     <aside id="workspace" class="workspace">

@@ -33,9 +33,10 @@ Approved feature: make the copilot actually target the user's Datadog (env/tenan
 - [x] **Scoped adapters**: Datadog builds `{(env:…) AND tenant:…}` filters + configurable tenant tag (`DATADOG_TENANT_TAG`) + scope window; Replay accepts-but-ignores scope.
 - [x] **Scope discovery** (`list_scopes`): Datadog enumerates env/tenant tag values (tenants narrowed to selected envs) via a discovery metric; Replay static set; `GET /api/scopes`.
 - [x] **Conversation subjects from the summary** (no extra LLM call); **rename**/**delete** (store + `Copilot` + `PATCH`/`DELETE` API).
-- [ ] **Control row UI** below the composer: Environment + Tenant (multiselect, fuzzy search), Duration (presets + custom, 7-day-capped calendar), Explain-as (persona, moved from the header). Send disabled until valid; updatable mid-conversation.
-- [ ] **Sidebar**: real subjects + rename/delete controls.
-- [ ] **Panels**: resizable + collapsible left/right; per-response copy button; remove the `⧉` header icon.
+- [x] **Control row UI** below the composer: Environment + Tenant (multiselect, type-to-filter), Duration (presets + custom, 7-day-capped `datetime-local` range), Explain-as (persona, moved from the header). Send disabled until valid; updatable mid-conversation.
+- [x] **Sidebar**: real subjects + rename/delete controls (⋯ menu).
+- [x] **Panels**: resizable + collapsible left/right (persisted); per-response copy button; removed the `⧉` header icon.
+- [ ] **Live validation** on the real Datadog org (blocked on the `.env` fix).
 
 ### Deferred to a later iteration (logged, not built)
 - **Archive** conversations · **Share** conversations · **Group into Projects** · **Clear memory**.

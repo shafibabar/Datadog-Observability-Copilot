@@ -13,13 +13,21 @@ const personaSel = $("persona");
 const banner = $("status-banner");
 const newChatBtn = $("new-chat");
 const genSummaryBtn = $("gen-summary");
-const toggleWsBtn = $("toggle-workspace");
 const wsBody = $("ws-body");
 const wsSnapshot = $("ws-snapshot");
+const durationSel = $("duration-select");
+const customRange = $("custom-range");
+const rangeStart = $("range-start");
+const rangeEnd = $("range-end");
+const scopeHint = $("scope-hint");
 
 // ---------- state ----------
-const state = { configured: false, currentId: null, conversations: [] };
+const state = { configured: false, currentId: null, conversations: [], busy: false };
+const scope = { environments: [], tenants: [] };
 const LAST_KEY = "copilot.lastConversation";
+const DAY_MS = 86400000;
+const PRESET_MS = { "1h": 3600000, "2h": 7200000, "4h": 14400000, "8h": 28800000,
+                    "1d": DAY_MS, "2d": 2 * DAY_MS, "1w": 7 * DAY_MS };
 
 // ---------- helpers ----------
 function escapeHtml(s) {
@@ -76,6 +84,197 @@ async function api(method, url, body) {
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
 }
 
+// Subsequence fuzzy match: every char of the query appears in order in the text.
+function fuzzy(text, q) {
+  let i = 0;
+  for (const ch of q) { i = text.indexOf(ch, i); if (i < 0) return false; i++; }
+  return true;
+}
+
+// ---------- multi-select with type-to-filter ----------
+function createMultiSelect(mount, { label, placeholder, onChange }) {
+  mount.innerHTML = "";
+  const lab = document.createElement("label");
+  lab.className = "ctl-label";
+  lab.textContent = label;
+  const box = document.createElement("div");
+  box.className = "ms";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "ms-btn empty";
+  const panel = document.createElement("div");
+  panel.className = "ms-panel";
+  panel.hidden = true;
+  const search = document.createElement("input");
+  search.className = "ms-search";
+  search.placeholder = "Type to filter…";
+  const list = document.createElement("div");
+  list.className = "ms-list";
+  panel.append(search, list);
+  box.append(btn, panel);
+  mount.append(lab, box);
+
+  let options = [];
+  const selected = new Set();
+
+  function renderBtn() {
+    const n = selected.size;
+    btn.textContent = n === 0 ? (placeholder || "Any")
+      : n === 1 ? [...selected][0] : `${n} selected`;
+    btn.classList.toggle("empty", n === 0);
+  }
+  function renderList() {
+    const q = search.value.trim().toLowerCase();
+    list.innerHTML = "";
+    const shown = options.filter((o) => !q || fuzzy(o.toLowerCase(), q));
+    if (!shown.length) { list.innerHTML = `<div class="ms-empty">No matches</div>`; return; }
+    for (const o of shown) {
+      const row = document.createElement("label");
+      row.className = "ms-opt";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = selected.has(o);
+      cb.onchange = () => {
+        cb.checked ? selected.add(o) : selected.delete(o);
+        renderBtn();
+        onChange && onChange([...selected]);
+      };
+      const span = document.createElement("span");
+      span.textContent = o;
+      row.append(cb, span);
+      list.append(row);
+    }
+  }
+  btn.onclick = () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) { search.value = ""; renderList(); search.focus(); }
+  };
+  search.oninput = renderList;
+  document.addEventListener("click", (e) => { if (!box.contains(e.target)) panel.hidden = true; });
+  renderBtn();
+
+  return {
+    setOptions(next) {
+      options = (next || []).slice();
+      for (const s of [...selected]) if (!options.includes(s)) selected.delete(s);
+      renderBtn();
+      if (!panel.hidden) renderList();
+    },
+    setSelected(vals) {
+      selected.clear();
+      for (const v of vals || []) selected.add(v);
+      renderBtn();
+      if (!panel.hidden) renderList();
+    },
+    getSelected() { return [...selected]; },
+  };
+}
+
+let envMS = null;
+let tenantMS = null;
+
+// ---------- scope ----------
+function currentWindow() {
+  const dur = durationSel.value;
+  if (dur === "custom") {
+    return {
+      start: rangeStart.value ? new Date(rangeStart.value) : null,
+      end: rangeEnd.value ? new Date(rangeEnd.value) : null,
+    };
+  }
+  const end = new Date();
+  return { start: new Date(end.getTime() - (PRESET_MS[dur] || PRESET_MS["1h"])), end };
+}
+
+function scopeValid() {
+  if (scope.environments.length === 0 && scope.tenants.length === 0) return false;
+  const { start, end } = currentWindow();
+  if (!start || !end || isNaN(start) || isNaN(end)) return false;
+  if (end <= start) return false;
+  if (end - start > 7 * DAY_MS) return false;
+  return true;
+}
+
+function scopeMessage() {
+  if (scope.environments.length === 0 && scope.tenants.length === 0)
+    return "Select at least one environment or tenant to investigate.";
+  const { start, end } = currentWindow();
+  if (!start || !end || isNaN(start) || isNaN(end)) return "Choose a start and end for the custom range.";
+  if (end <= start) return "The end of the range must be after its start.";
+  if (end - start > 7 * DAY_MS) return "A custom range can’t exceed 7 days.";
+  return "";
+}
+
+function scopePayload() {
+  const { start, end } = currentWindow();
+  return {
+    environments: scope.environments,
+    tenants: scope.tenants,
+    start: start.toISOString(),
+    end: end.toISOString(),
+  };
+}
+
+function refreshComposer() {
+  const ready = state.configured && !!state.currentId && scopeValid() && !state.busy;
+  sendBtn.disabled = !ready;
+  input.disabled = !state.configured || state.busy;
+  genSummaryBtn.disabled = !state.configured || !state.currentId || state.busy;
+  scopeHint.textContent =
+    (state.configured && state.currentId && !state.busy) ? scopeMessage() : "";
+}
+
+function toLocalInput(d) {
+  // datetime-local wants "YYYY-MM-DDTHH:MM" in local time.
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function syncCustomBounds() {
+  const now = new Date();
+  rangeEnd.max = toLocalInput(now);
+  rangeStart.max = toLocalInput(now);
+  if (rangeStart.value) {
+    const s = new Date(rangeStart.value);
+    const cap = new Date(Math.min(s.getTime() + 7 * DAY_MS, now.getTime()));
+    rangeEnd.max = toLocalInput(cap);
+    rangeEnd.min = toLocalInput(s);
+  }
+}
+
+async function loadScopes(selectedEnvs) {
+  const qs = selectedEnvs && selectedEnvs.length
+    ? `?environments=${encodeURIComponent(selectedEnvs.join(","))}` : "";
+  const { ok, data } = await api("GET", `/api/scopes${qs}`);
+  if (!ok) return;
+  if (!selectedEnvs) envMS.setOptions(data.environments || []);
+  tenantMS.setOptions(data.tenants || []);
+}
+
+function setupControls() {
+  envMS = createMultiSelect($("ctl-env"), {
+    label: "Environment", placeholder: "Any environment",
+    onChange: (vals) => {
+      scope.environments = vals;
+      loadScopes(vals).then(() => { scope.tenants = tenantMS.getSelected(); refreshComposer(); });
+      refreshComposer();
+    },
+  });
+  tenantMS = createMultiSelect($("ctl-tenant"), {
+    label: "Tenant", placeholder: "Any tenant",
+    onChange: (vals) => { scope.tenants = vals; refreshComposer(); },
+  });
+
+  durationSel.addEventListener("change", () => {
+    customRange.hidden = durationSel.value !== "custom";
+    if (durationSel.value === "custom") syncCustomBounds();
+    refreshComposer();
+  });
+  rangeStart.addEventListener("change", () => { syncCustomBounds(); refreshComposer(); });
+  rangeEnd.addEventListener("change", refreshComposer);
+  personaSel.addEventListener("change", switchPersona);
+}
+
 // ---------- chat rendering ----------
 function clearChat() { chat.innerHTML = ""; }
 
@@ -98,6 +297,25 @@ function addMessage(role, content, { markdown = false, tag = null, artifact = fa
   chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
   return bubble;
+}
+
+// A copy-to-clipboard control that appears on every assistant reply.
+function attachCopy(bubble, text) {
+  const btn = document.createElement("button");
+  btn.className = "copy-btn";
+  btn.type = "button";
+  btn.title = "Copy reply";
+  btn.textContent = "Copy";
+  btn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(text || "");
+      btn.textContent = "Copied ✓";
+      setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+    } catch {
+      btn.textContent = "Copy failed";
+    }
+  };
+  bubble.appendChild(btn);
 }
 
 function attachEvidence(bubble, evidence) {
@@ -124,8 +342,9 @@ function showWelcome() {
   w.className = "welcome";
   w.innerHTML = `
     <h2>Start an investigation</h2>
-    <p>I reason over the telemetry and back every conclusion with evidence —
-       distinguishing Facts, Hypotheses, Recommendations, and Unknowns.</p>
+    <p>Pick an environment/tenant and a time window below, then ask. I reason over the
+       telemetry and back every conclusion with evidence — distinguishing Facts,
+       Hypotheses, Recommendations, and Unknowns.</p>
     <div class="examples"></div>`;
   const examples = [
     "Is the system healthy right now?",
@@ -138,7 +357,7 @@ function showWelcome() {
     const c = document.createElement("button");
     c.className = "chip";
     c.textContent = ex;
-    c.onclick = () => { input.value = ex; sendMessage(); };
+    c.onclick = () => { input.value = ex; autoGrow(); input.focus(); };  // fill, don't auto-send
     box.appendChild(c);
   }
   chat.appendChild(w);
@@ -211,12 +430,63 @@ function renderConvoList() {
   for (const c of state.conversations) {
     const el = document.createElement("div");
     el.className = "convo" + (c.id === state.currentId ? " active" : "");
-    el.innerHTML =
+    const main = document.createElement("div");
+    main.className = "convo-main";
+    main.innerHTML =
       `<div class="convo-name">${escapeHtml(c.title || "Untitled")}</div>` +
       `<div class="convo-meta">${c.message_count} msg · ${relativeTime(c.updated_at)}</div>`;
-    el.onclick = () => openConversation(c.id);
+    main.onclick = () => openConversation(c.id);
+
+    const menu = document.createElement("button");
+    menu.className = "convo-menu";
+    menu.type = "button";
+    menu.title = "Rename or delete";
+    menu.textContent = "⋯";
+    menu.onclick = (e) => { e.stopPropagation(); openConvoMenu(menu, c); };
+
+    el.append(main, menu);
     convoList.appendChild(el);
   }
+}
+
+function openConvoMenu(anchor, convo) {
+  document.querySelectorAll(".convo-popup").forEach((p) => p.remove());
+  const pop = document.createElement("div");
+  pop.className = "convo-popup";
+  const rename = document.createElement("button");
+  rename.textContent = "Rename";
+  rename.onclick = () => { pop.remove(); renameConversation(convo); };
+  const del = document.createElement("button");
+  del.className = "danger";
+  del.textContent = "Delete";
+  del.onclick = () => { pop.remove(); deleteConversation(convo.id); };
+  pop.append(rename, del);
+  const r = anchor.getBoundingClientRect();
+  pop.style.top = `${r.bottom + 4}px`;
+  pop.style.left = `${r.left - 80}px`;
+  document.body.appendChild(pop);
+  setTimeout(() => document.addEventListener("click", function h() {
+    pop.remove(); document.removeEventListener("click", h);
+  }), 0);
+}
+
+async function renameConversation(convo) {
+  const title = window.prompt("Rename investigation", convo.title || "");
+  if (title === null) return;
+  const { ok } = await api("PATCH", `/api/conversations/${convo.id}`, { title });
+  if (!ok) return;
+  if (convo.id === state.currentId) convoTitle.textContent = title || convoTitle.textContent;
+  loadConvoListOnly();
+}
+
+async function deleteConversation(cid) {
+  if (!window.confirm("Delete this investigation? This can’t be undone.")) return;
+  const { ok } = await api("DELETE", `/api/conversations/${cid}`);
+  if (!ok) return;
+  if (cid === state.currentId) { state.currentId = null; localStorage.removeItem(LAST_KEY); }
+  await loadConvoListOnly();
+  const next = state.conversations[0];
+  if (next) openConversation(next.id); else newConversation();
 }
 
 // ---------- actions ----------
@@ -226,7 +496,7 @@ async function refreshStatus() {
     const parts = [`source: ${s.data_source}`, s.anthropic_configured ? "Claude ✓" : "Claude ✗"];
     if (s.data_source === "datadog") parts.push(s.datadog_configured ? "Datadog ✓" : "Datadog ✗");
     banner.textContent = parts.join("  ·  ");
-    banner.className = "status " + (s.anthropic_configured ? "ok" : "warn");
+    banner.className = "status " + (s.anthropic_configured || s.data_source ? "ok" : "warn");
   } catch {
     banner.textContent = "status unavailable";
     banner.className = "status warn";
@@ -239,18 +509,28 @@ async function loadConversations() {
   state.conversations = data.conversations || [];
   renderConvoList();
   if (!state.configured) {
-    setComposerEnabled(false);
+    refreshComposer();
     clearChat();
     addMessage("assistant",
-      "Claude isn't configured yet. Add ANTHROPIC_API_KEY to a local .env file and restart " +
-      "to enable evidence-backed investigations.");
+      "Claude isn’t configured yet. Sign in to the Claude Code CLI (run `claude`) or add " +
+      "ANTHROPIC_API_KEY to a local .env file, then restart to enable investigations.");
     return;
   }
-  setComposerEnabled(true);
+  await loadScopes();
   const last = localStorage.getItem(LAST_KEY);
   const pick = state.conversations.find((c) => c.id === last) || state.conversations[0];
   if (pick) openConversation(pick.id);
   else newConversation();
+}
+
+async function applyScopeToControls(s) {
+  // Reflect a conversation's persisted scope back into the controls when opened,
+  // so the widgets show what the investigation is actually scoped to.
+  scope.environments = (s && s.environments) || [];
+  scope.tenants = (s && s.tenants) || [];
+  envMS.setSelected(scope.environments);
+  await loadScopes(scope.environments.length ? scope.environments : undefined);
+  tenantMS.setSelected(scope.tenants);
 }
 
 async function openConversation(cid) {
@@ -259,6 +539,7 @@ async function openConversation(cid) {
   state.currentId = cid;
   localStorage.setItem(LAST_KEY, cid);
   convoTitle.textContent = data.title || "Investigation";
+  await applyScopeToControls(data.scope);
   renderConvoList();
   clearChat();
   if (!data.messages || !data.messages.length) {
@@ -267,12 +548,14 @@ async function openConversation(cid) {
     for (const m of data.messages) {
       if (m.role === "assistant") {
         const b = addMessage("assistant", m.content, { markdown: true });
+        attachCopy(b, m.content);
       } else {
         addMessage("user", m.content);
       }
     }
   }
   renderWorkspace(data.workspace);
+  refreshComposer();
 }
 
 async function newConversation() {
@@ -289,35 +572,34 @@ async function loadConvoListOnly() {
   renderConvoList();
 }
 
-function setComposerEnabled(on) {
-  input.disabled = !on;
-  sendBtn.disabled = !on;
-  genSummaryBtn.disabled = !on;
-}
-
 async function sendMessage() {
   const message = input.value.trim();
-  if (!message || !state.currentId) return;
-  // Remove the welcome block on first message.
+  if (!message || !state.currentId || !scopeValid()) { refreshComposer(); return; }
   if (chat.querySelector(".welcome")) clearChat();
   addMessage("user", message);
   input.value = "";
   autoGrow();
-  setComposerEnabled(false);
+  state.busy = true;
+  refreshComposer();
   const thinking = addMessage("assistant", "Investigating…");
   try {
     const { ok, data } = await api("POST", `/api/conversations/${state.currentId}/chat`,
-      { message, persona: personaSel.value });
+      { message, persona: personaSel.value, scope: scopePayload() });
     if (!ok) { thinking.textContent = data.error || "Something went wrong."; return; }
     thinking.querySelector("div").innerHTML = renderMarkdown(data.reply);
-    attachEvidence(thinking, data.evidence);
+    if (!data.blocked) {
+      attachEvidence(thinking, data.evidence);
+      attachCopy(thinking, data.reply);
+      convoTitle.textContent =
+        (await api("GET", `/api/conversations/${state.currentId}`)).data.title || convoTitle.textContent;
+      loadConvoListOnly();
+    }
     renderWorkspace(data.workspace);
-    convoTitle.textContent = (await api("GET", `/api/conversations/${state.currentId}`)).data.title || convoTitle.textContent;
-    loadConvoListOnly();
   } catch {
     thinking.textContent = "Something went wrong reaching the backend.";
   } finally {
-    setComposerEnabled(true);
+    state.busy = false;
+    refreshComposer();
     input.focus();
   }
 }
@@ -326,8 +608,9 @@ async function switchPersona() {
   if (!state.currentId) return;
   const { ok, data } = await api("POST", `/api/conversations/${state.currentId}/chat`,
     { message: "", persona: personaSel.value });
-  if (!ok || data.no_investigation) { renderWorkspace(data.workspace); return; }
+  if (!ok || data.no_investigation) { if (data) renderWorkspace(data.workspace); return; }
   const b = addMessage("assistant", data.reply, { markdown: true, tag: `Re-framed for ${data.persona_label}` });
+  attachCopy(b, data.reply);
   attachEvidence(b, data.evidence);
   renderWorkspace(data.workspace);
 }
@@ -339,6 +622,7 @@ async function generateSummary() {
     { key: "incident_summary" });
   if (!ok) { bubble.textContent = data.error || "Could not generate artifact."; return; }
   bubble.querySelector("div").innerHTML = renderMarkdown(data.markdown);
+  attachCopy(bubble, data.markdown);
   chat.scrollTop = chat.scrollHeight;
 }
 
@@ -348,6 +632,63 @@ function autoGrow() {
   input.style.height = Math.min(input.scrollHeight, 160) + "px";
 }
 
+// ---------- resizable / collapsible panels ----------
+const widths = {
+  sidebar: parseInt(localStorage.getItem("copilot.w.sidebar"), 10) || 260,
+  ws: parseInt(localStorage.getItem("copilot.w.ws"), 10) || 380,
+};
+
+function applyLayout() {
+  const sw = appEl.classList.contains("sidebar-collapsed") ? 0 : widths.sidebar;
+  const ww = appEl.classList.contains("ws-collapsed") ? 0 : widths.ws;
+  appEl.style.gridTemplateColumns = `${sw}px 6px 1fr 6px ${ww}px`;
+}
+
+function setupResizer(barId, side) {
+  const bar = $(barId);
+  let dragging = false;
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.target.classList.contains("collapse")) return;  // chevron toggles, doesn't drag
+    dragging = true;
+    bar.setPointerCapture(e.pointerId);
+    document.body.style.cursor = "col-resize";
+  });
+  bar.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    let w = side === "left" ? e.clientX : window.innerWidth - e.clientX;
+    w = Math.max(180, Math.min(560, w));
+    widths[side === "left" ? "sidebar" : "ws"] = w;
+    applyLayout();
+  });
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = "";
+    localStorage.setItem("copilot.w.sidebar", widths.sidebar);
+    localStorage.setItem("copilot.w.ws", widths.ws);
+  };
+  bar.addEventListener("pointerup", stop);
+  bar.addEventListener("pointercancel", stop);
+}
+
+function setupCollapse() {
+  const restore = (key, cls) => { if (localStorage.getItem(key) === "1") appEl.classList.add(cls); };
+  restore("copilot.collapsed.sidebar", "sidebar-collapsed");
+  restore("copilot.collapsed.ws", "ws-collapsed");
+  $("collapse-left").addEventListener("click", (e) => {
+    e.stopPropagation();
+    appEl.classList.toggle("sidebar-collapsed");
+    localStorage.setItem("copilot.collapsed.sidebar", appEl.classList.contains("sidebar-collapsed") ? "1" : "0");
+    applyLayout();
+  });
+  $("collapse-right").addEventListener("click", (e) => {
+    e.stopPropagation();
+    appEl.classList.toggle("ws-collapsed");
+    localStorage.setItem("copilot.collapsed.ws", appEl.classList.contains("ws-collapsed") ? "1" : "0");
+    applyLayout();
+  });
+}
+
 // ---------- events ----------
 form.addEventListener("submit", (e) => { e.preventDefault(); sendMessage(); });
 input.addEventListener("input", autoGrow);
@@ -355,10 +696,13 @@ input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
 });
 newChatBtn.addEventListener("click", newConversation);
-personaSel.addEventListener("change", switchPersona);
 genSummaryBtn.addEventListener("click", generateSummary);
-toggleWsBtn.addEventListener("click", () => appEl.classList.toggle("ws-hidden"));
 
 // ---------- init ----------
+setupControls();
+setupResizer("resize-left", "left");
+setupResizer("resize-right", "right");
+setupCollapse();
+applyLayout();
 refreshStatus();
 loadConversations();

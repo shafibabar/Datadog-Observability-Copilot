@@ -16,8 +16,12 @@ from dotenv import load_dotenv
 
 # Load .env from the project root if present. override=False means real
 # environment variables (e.g. from Vault/CI later) take precedence over the file.
+# The resolved path is computed from THIS file's location, so it's independent of
+# the current working directory you launch uvicorn from.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env", override=False)
+DOTENV_PATH = _PROJECT_ROOT / ".env"
+# True when a .env file was actually found and read (not whether it had values).
+DOTENV_LOADED = load_dotenv(DOTENV_PATH, override=False)
 
 
 def _get(name: str, default: str = "") -> str:
@@ -76,7 +80,9 @@ class Settings:
         return bool(self.datadog_access_token or (self.datadog_api_key and self.datadog_app_key))
 
     def status(self) -> dict[str, object]:
-        """Safe, secret-free summary for health checks and the UI banner."""
+        """Safe, secret-free summary for health checks and the UI banner. Includes
+        .env diagnostics (path + whether a file was found) so a misconfigured setup
+        is visible from `curl /api/status` alone — never any secret values."""
         return {
             "data_source": self.data_source,
             "anthropic_configured": self.has_anthropic,
@@ -85,6 +91,8 @@ class Settings:
             "datadog_site": self.datadog_site,
             "model_fast": self.model_fast,
             "model_deep": self.model_deep,
+            "dotenv_path": str(DOTENV_PATH),
+            "dotenv_loaded": bool(DOTENV_LOADED),
         }
 
 

@@ -78,6 +78,15 @@ def test_guard_can_be_disabled_and_mode_overridden(monkeypatch):
     assert s.guard_mode == "deterministic"
 
 
+def test_status_reports_dotenv_diagnostics_without_secrets(monkeypatch):
+    _clear(monkeypatch)
+    s = Settings().status()
+    assert s["dotenv_path"].endswith(".env")     # where the app looks for it
+    assert "dotenv_loaded" in s                    # whether a file was found
+    # diagnostics must stay secret-free
+    assert "api_key" not in s and "app_key" not in s and "access_token" not in s
+
+
 def test_data_source_is_lowercased(monkeypatch):
     _clear(monkeypatch)
     monkeypatch.setenv("COPILOT_DATA_SOURCE", "DataDog")
