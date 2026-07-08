@@ -21,6 +21,7 @@ always available.
 from __future__ import annotations
 
 from app.artifacts import render_artifact
+from app.guard import evaluate as guard_evaluate
 from app.personas import get_persona, render
 from app.reasoning.engine import ReasoningEngine
 from app.telemetry.base import DataSource
@@ -43,11 +44,19 @@ class Copilot:
         engine: ReasoningEngine,
         store: WorkspaceStore,
         incident_id: str = "incident",
+        guard_enabled: bool = True,
+        guard_mode: str = "hybrid",
+        guard_max_chars: int = 2000,
+        classifier=None,
     ) -> None:
         self._source = source
         self._engine = engine
         self._store = store
         self._incident_id = incident_id
+        self._guard_enabled = guard_enabled
+        self._guard_mode = guard_mode
+        self._guard_max_chars = guard_max_chars
+        self._classifier = classifier
 
     # --- conversations -----------------------------------------------------
 
@@ -75,6 +84,20 @@ class Copilot:
 
     def ask(self, cid: str, message: str, persona: str) -> dict:
         self._store.get_workspace(cid)  # validate (raises KeyError) before writing
+
+        # Pre-reasoning gate: an off-topic / injection message is refused BEFORE
+        # anything is persisted or the expensive reasoning path runs.
+        if self._guard_enabled:
+            verdict = guard_evaluate(
+                message,
+                has_context=self._store.latest(cid) is not None,
+                mode=self._guard_mode,
+                max_chars=self._guard_max_chars,
+                classifier=self._classifier,
+            )
+            if not verdict.allowed:
+                return self._blocked_view(cid, persona, verdict)
+
         # History is the conversation *before* this turn → real follow-up memory.
         history = [(m.role, m.content) for m in self._store.get_messages(cid)]
         self._store.add_message(cid, role="user", content=message, persona=persona)
@@ -112,6 +135,20 @@ class Copilot:
         return {"artifact": doc.model_dump(), "markdown": doc.to_markdown()}
 
     # --- internals ---------------------------------------------------------
+
+    def _blocked_view(self, cid: str, persona_key: str, verdict) -> dict:
+        """The reply for a message the guard refused — no reasoning, nothing
+        persisted, the live Workspace left exactly as it was."""
+        persona = get_persona(persona_key)
+        return {
+            "blocked": True,
+            "category": verdict.category,
+            "reply": verdict.refusal,
+            "persona": persona.key,
+            "persona_label": persona.label,
+            "evidence": [],
+            "workspace": self._workspace_payload(cid),
+        }
 
     def _view(self, cid: str, persona_key: str) -> dict:
         snapshot = self._store.latest(cid)
@@ -184,7 +221,13 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
     engine = ReasoningEngine(source, llm)
     store = WorkspaceStore(settings.workspace_db)
-    return Copilot(source, engine, store, incident_id=f"{source.source_type}-session")
+    return Copilot(
+        source, engine, store,
+        incident_id=f"{source.source_type}-session",
+        guard_enabled=settings.guard_enabled,
+        guard_mode=settings.guard_mode,
+        guard_max_chars=settings.guard_max_chars,
+    )
 
 
 def _build_source(settings) -> DataSource:

@@ -171,6 +171,16 @@ def test_cli_available_is_a_bool():
     assert isinstance(cli_available(), bool)
 
 
+# --- prompt hardening -----------------------------------------------------
+
+def test_system_prompt_is_hardened_against_injection():
+    from app.reasoning.engine import _SYSTEM
+    low = _SYSTEM.lower()
+    # the model is told to treat inputs as untrusted data, not instructions
+    assert "untrusted" in low
+    assert "instruction" in low
+
+
 # --- engine ---------------------------------------------------------------
 
 _CANNED = """```json

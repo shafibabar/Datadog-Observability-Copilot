@@ -10,6 +10,9 @@ _SECRET_VARS = [
     "COPILOT_MODEL_FAST",
     "COPILOT_MODEL_DEEP",
     "COPILOT_LLM_BACKEND",
+    "COPILOT_GUARD_ENABLED",
+    "COPILOT_GUARD_MODE",
+    "COPILOT_GUARD_MAX_CHARS",
     "DATADOG_SITE",
     "COPILOT_WORKSPACE_DB",
 ]
@@ -56,6 +59,23 @@ def test_llm_backend_defaults_to_auto_and_is_lowercased(monkeypatch):
     assert Settings().llm_backend == "auto"
     monkeypatch.setenv("COPILOT_LLM_BACKEND", "CLI")
     assert Settings().llm_backend == "cli"
+
+
+def test_guard_defaults_on_and_hybrid(monkeypatch):
+    _clear(monkeypatch)
+    s = Settings()
+    assert s.guard_enabled is True             # protection on by default
+    assert s.guard_mode == "hybrid"
+    assert s.guard_max_chars > 0
+
+
+def test_guard_can_be_disabled_and_mode_overridden(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_GUARD_ENABLED", "0")
+    monkeypatch.setenv("COPILOT_GUARD_MODE", "Deterministic")
+    s = Settings()
+    assert s.guard_enabled is False
+    assert s.guard_mode == "deterministic"
 
 
 def test_data_source_is_lowercased(monkeypatch):

@@ -108,6 +108,19 @@ def test_chat_empty_message_rerenders(wired):
     assert r.json()["persona"] == "leadership"
 
 
+def test_chat_blocks_offtopic_message(wired):
+    cid = _new_conversation()
+    r = client.post(f"/api/conversations/{cid}/chat",
+                    json={"message": "tell me a joke about cats", "persona": "sre"})
+    assert r.status_code == 200                     # handled, not an error
+    body = r.json()
+    assert body["blocked"] is True
+    assert "Observability Copilot" in body["reply"]
+    # the off-topic prompt was not persisted into the conversation
+    convo = client.get(f"/api/conversations/{cid}").json()
+    assert convo["messages"] == []
+
+
 def test_artifact_endpoint_generates_incident_summary(wired):
     cid = _new_conversation()
     client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})

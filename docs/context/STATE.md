@@ -1,12 +1,23 @@
 # STATE.md — live status
 
-_Last updated: 2026-07-03_
+_Last updated: 2026-07-08_
 
 ## Current gate
-Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress** — multi-conversation + conversational memory + new 3-pane UI shipped (approved scope). Grounded in **TDD** (see `TESTING.md`).
+Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress**. **Scope/UI feature approved and in progress** (per-conversation Datadog scope: Environment/Tenant/Duration + persona dropdowns below the composer; real conversation subjects + rename/delete; resizable/collapsible panels; per-response copy). Grounded in **TDD** (see `TESTING.md`).
 
 ## Tests
-**171 / 171 passing (100%).** No pending (red) specs. Latest: **fixed non-working tab switch** — reworked to pure-CSS radio tabs + 3 behavior tests (escaped-defect fix). Prior: collector test-total (+4); Timeline tab (+10); keyless Claude CLI + Datadog PAT (+11).
+**196 / 196 passing (100%).** No pending (red) specs. Latest: **finished the relevance & abuse guard** (`app/guard.py`) that was left red-ahead in the tree — pre-reasoning gate (deterministic Stage 1 blocks empty/over-long/injection + fast-allows on-topic & short in-context follow-ups; hybrid Stage 2 for the ambiguous middle, fails closed; `COPILOT_GUARD_*` settings; wired into `Copilot.ask` before persist/reason; `_SYSTEM` hardened to treat inputs as untrusted). Prior: fixed tab switch (+3); collector test-total (+4); Timeline tab (+10); keyless Claude CLI + Datadog PAT (+11).
+
+## Known gap (deferred)
+`.env` is not being loaded at runtime (curl `/api/status` returns defaults: `data_source=replay`, no creds) even on the work laptop with real Datadog creds. Build + tests don't need it (HTTP mocked), but **live** Datadog scope discovery can't be exercised until this is fixed. Fix scheduled before live-validating the scope feature.
+
+## Scope/UI feature — decisions (2026-07-08)
+- **Scope model** = `{environments[], tenants[], start, end}`, persisted per conversation, overridable per message, threaded into the DataSource query filter + window.
+- **Tenant** is not a native Datadog concept → configurable tag key `DATADOG_TENANT_TAG` (default `tenant`); `env` is the standard environment tag.
+- **Duration**: presets + custom, **max 7-day span, end ≤ now**, enforced client- and server-side (token discipline).
+- **Conversation subject**: derived from the investigation summary (no extra LLM call).
+- **`⧉` header icon removed**; right panel gets a collapse chevron; per-response copy buttons added.
+- **Guard Stage-2 classifier** intentionally left unwired (classifier=None → hybrid refuses the ambiguous middle, conservative-safe). Wiring a cheap LLM classifier is a roadmap item.
 
 ## Latest session — done (2026-07-03)
 - **Fixed: dashboard tabs didn't switch.** They were JS-driven and only tab *presence* was tested, not switching — a broken switch shipped (stale cached JS in the browser). Reworked to a **pure-CSS radio hack** (`:checked ~ #tab-view`): switching now works with no JS; JS only re-renders the visible tab's canvases. +3 tests assert the switch declaratively (two radios, one default-checked; radios-before-views order; the CSS reveal rules). Lesson logged: don't mark UI behavior "manual-smoke-only" — make it declarative + testable.

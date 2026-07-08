@@ -24,6 +24,14 @@ def _get(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    """Parse a boolean env var. Falsey: 0/false/no/off (case-insensitive)."""
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
 @dataclass(frozen=True)
 class Settings:
     # Anthropic / Claude
@@ -32,6 +40,12 @@ class Settings:
     model_deep: str = field(default_factory=lambda: _get("COPILOT_MODEL_DEEP", "claude-sonnet-4-6"))
     # Which LLM backend to use: "auto" (Claude CLI when no key, else SDK), "cli", or "sdk".
     llm_backend: str = field(default_factory=lambda: _get("COPILOT_LLM_BACKEND", "auto").lower())
+
+    # Relevance & abuse guard (pre-reasoning gate). On by default; "hybrid" consults
+    # a cheap classifier for the ambiguous middle, "deterministic" refuses it outright.
+    guard_enabled: bool = field(default_factory=lambda: _get_bool("COPILOT_GUARD_ENABLED", True))
+    guard_mode: str = field(default_factory=lambda: _get("COPILOT_GUARD_MODE", "hybrid").lower())
+    guard_max_chars: int = field(default_factory=lambda: int(_get("COPILOT_GUARD_MAX_CHARS", "2000") or "2000"))
 
     # Datadog (optional — only needed for the live data source)
     datadog_api_key: str = field(default_factory=lambda: _get("DATADOG_API_KEY"))
