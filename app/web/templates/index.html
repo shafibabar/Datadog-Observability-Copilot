@@ -12,88 +12,85 @@
     <!-- Left: conversations -->
     <aside class="sidebar">
       <div class="sidebar-head">
-        <div class="brand">
-          <span class="dot"></span>
-          <strong>Observability&nbsp;Copilot</strong>
-        </div>
-        <button id="new-chat" class="btn-new" type="button">＋ New investigation</button>
+        <div class="brand"><span class="dot"></span><span>Observability&nbsp;Copilot</span></div>
+        <button id="new-chat" class="btn-new" type="button">
+          <span class="plus">＋</span> New investigation
+        </button>
       </div>
       <nav id="convo-list" class="convo-list" aria-label="Conversations"></nav>
-      <div class="sidebar-foot">
-        <span id="status-banner" class="status">checking…</span>
-      </div>
+      <div class="sidebar-foot"><span id="status-banner" class="status">checking…</span></div>
     </aside>
 
-    <!-- draggable divider + collapse chevron -->
-    <div class="resizer" id="resize-left" title="Drag to resize">
-      <button class="collapse" id="collapse-left" type="button" title="Collapse conversations">‹</button>
+    <div class="resizer" id="resize-left" title="Drag to resize · click chevron to collapse">
+      <button class="collapse" id="collapse-left" type="button" title="Collapse">‹</button>
     </div>
 
     <!-- Center: chat -->
     <main class="main">
-      <header class="main-head">
+      <header class="topbar">
         <div id="convo-title" class="convo-title">Investigation</div>
-        <div class="head-actions">
-          <button id="gen-summary" class="ghost" type="button">Incident Summary</button>
-        </div>
+        <button id="gen-summary" class="btn-ghost" type="button">Incident Summary</button>
       </header>
 
       <div id="chat" class="chat"></div>
 
-      <div class="composer-area">
-        <form id="composer" class="composer">
-          <textarea id="input" rows="1"
-            placeholder="Ask about system health, recent changes, or an incident… e.g. “Is the system healthy right now?”"></textarea>
-          <button type="submit" id="send">Send</button>
-        </form>
-
-        <!-- scope + persona controls, just below the prompt -->
-        <div class="controls" id="controls">
-          <div class="control" id="ctl-env"></div>
-          <div class="control" id="ctl-tenant"></div>
-          <div class="control" id="ctl-duration">
-            <label class="ctl-label" for="duration-select">Duration</label>
-            <select id="duration-select">
-              <option value="1h" selected>Last 1 hour</option>
-              <option value="2h">Last 2 hours</option>
-              <option value="4h">Last 4 hours</option>
-              <option value="8h">Last 8 hours</option>
-              <option value="1d">Last 1 day</option>
-              <option value="2d">Last 2 days</option>
-              <option value="1w">Last 1 week</option>
-              <option value="custom">Custom range…</option>
-            </select>
-            <div id="custom-range" class="custom-range" hidden>
-              <label>From <input type="datetime-local" id="range-start" /></label>
-              <label>To <input type="datetime-local" id="range-end" /></label>
-              <span id="range-note" class="range-note">Max 7 days.</span>
+      <div class="composer-wrap">
+        <div class="composer-shell">
+          <form id="composer" class="composer">
+            <textarea id="input" rows="1"
+              placeholder="Ask about system health, recent changes, or an incident…"></textarea>
+            <button type="submit" id="send" class="send" title="Send" aria-label="Send">↑</button>
+          </form>
+          <div class="controls" id="controls">
+            <div class="control" id="ctl-env"></div>
+            <div class="control" id="ctl-tenant"></div>
+            <div class="control" id="ctl-duration">
+              <span class="ctl-label">Duration</span>
+              <div class="pill-wrap">
+                <select id="duration-select" class="pill-select">
+                  <option value="1h" selected>Last 1 hour</option>
+                  <option value="2h">Last 2 hours</option>
+                  <option value="4h">Last 4 hours</option>
+                  <option value="8h">Last 8 hours</option>
+                  <option value="1d">Last 1 day</option>
+                  <option value="2d">Last 2 days</option>
+                  <option value="1w">Last 1 week</option>
+                  <option value="custom">Custom range…</option>
+                </select>
+              </div>
+              <div id="custom-range" class="custom-range" hidden>
+                <label>From <input type="datetime-local" id="range-start" /></label>
+                <label>To <input type="datetime-local" id="range-end" /></label>
+                <span class="range-note">Max 7 days.</span>
+              </div>
             </div>
-          </div>
-          <div class="control" id="ctl-persona">
-            <label class="ctl-label" for="persona">Explain as</label>
-            <select id="persona">
-              <option value="support">Support Engineer</option>
-              <option value="sre" selected>Site Reliability Engineer</option>
-              <option value="swe">Software Engineer</option>
-              <option value="pm">Product Manager</option>
-              <option value="leadership">Engineering Leadership</option>
-            </select>
+            <div class="control" id="ctl-persona">
+              <span class="ctl-label">Explain as</span>
+              <div class="pill-wrap">
+                <select id="persona" class="pill-select">
+                  <option value="support">Support Engineer</option>
+                  <option value="sre" selected>Site Reliability Engineer</option>
+                  <option value="swe">Software Engineer</option>
+                  <option value="pm">Product Manager</option>
+                  <option value="leadership">Engineering Leadership</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
         <div id="scope-hint" class="scope-hint"></div>
       </div>
     </main>
 
-    <!-- draggable divider + collapse chevron -->
-    <div class="resizer" id="resize-right" title="Drag to resize">
-      <button class="collapse" id="collapse-right" type="button" title="Collapse workspace">›</button>
+    <div class="resizer" id="resize-right" title="Drag to resize · click chevron to collapse">
+      <button class="collapse" id="collapse-right" type="button" title="Collapse">›</button>
     </div>
 
-    <!-- Right: the living Investigation Workspace -->
+    <!-- Right: living Investigation Workspace -->
     <aside id="workspace" class="workspace">
-      <div class="workspace-head">
+      <div class="ws-head">
         <div>
-          <strong>Investigation Workspace</strong>
+          <div class="ws-title">Investigation Workspace</div>
           <div class="ws-sub">the living document · updates as you investigate</div>
         </div>
         <span id="ws-snapshot" class="ws-snapshot"></span>

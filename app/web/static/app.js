@@ -634,14 +634,15 @@ function autoGrow() {
 
 // ---------- resizable / collapsible panels ----------
 const widths = {
-  sidebar: parseInt(localStorage.getItem("copilot.w.sidebar"), 10) || 260,
-  ws: parseInt(localStorage.getItem("copilot.w.ws"), 10) || 380,
+  sidebar: parseInt(localStorage.getItem("copilot.w.sidebar"), 10) || 268,
+  ws: parseInt(localStorage.getItem("copilot.w.ws"), 10) || 360,
 };
 
+// Panel widths are CSS variables the flex layout reads; collapse is a class the
+// CSS acts on. If this never runs, the CSS defaults already render correctly.
 function applyLayout() {
-  const sw = appEl.classList.contains("sidebar-collapsed") ? 0 : widths.sidebar;
-  const ww = appEl.classList.contains("ws-collapsed") ? 0 : widths.ws;
-  appEl.style.gridTemplateColumns = `${sw}px 6px 1fr 6px ${ww}px`;
+  appEl.style.setProperty("--sidebar-w", widths.sidebar + "px");
+  appEl.style.setProperty("--ws-w", widths.ws + "px");
 }
 
 function setupResizer(barId, side) {
@@ -652,6 +653,7 @@ function setupResizer(barId, side) {
     dragging = true;
     bar.setPointerCapture(e.pointerId);
     document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
   });
   bar.addEventListener("pointermove", (e) => {
     if (!dragging) return;
@@ -664,6 +666,7 @@ function setupResizer(barId, side) {
     if (!dragging) return;
     dragging = false;
     document.body.style.cursor = "";
+    document.body.style.userSelect = "";
     localStorage.setItem("copilot.w.sidebar", widths.sidebar);
     localStorage.setItem("copilot.w.ws", widths.ws);
   };

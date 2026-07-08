@@ -32,8 +32,10 @@ def test_control_row_exists_below_the_composer():
 def test_persona_selector_moved_out_of_header_into_controls():
     html = _html()
     assert 'id="persona"' in html
-    header = html[html.index("main-head"):html.index('id="chat"')]
+    header = html[html.index('class="topbar"'):html.index('id="chat"')]
     assert 'id="persona"' not in header          # no longer in the header
+    # and it sits inside the control row, after the composer
+    assert html.index('id="composer"') < html.index('id="persona"')
 
 
 def test_old_workspace_toggle_icon_removed_from_header():
@@ -74,3 +76,12 @@ def test_scopes_are_fetched_and_env_tenant_multiselects_present():
 def test_conversations_can_be_renamed_and_deleted():
     js = _js()
     assert "PATCH" in js and "DELETE" in js
+
+
+def test_assets_are_cache_busted_to_prevent_stale_styles():
+    # New HTML must never be styled by a stale cached stylesheet/script.
+    html = _html()
+    assert "/static/styles.css?v=" in html
+    assert "/static/app.js?v=" in html
+    r = client.get("/")
+    assert "no-store" in r.headers.get("cache-control", "")
