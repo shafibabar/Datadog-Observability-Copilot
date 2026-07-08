@@ -10,20 +10,23 @@ from __future__ import annotations
 
 from app.reasoning.models import Evidence
 from app.telemetry.base import DataSource
+from app.telemetry.models import Scope
 
 
-def build_evidence_catalog(source: DataSource) -> tuple[dict[str, Evidence], str]:
+def build_evidence_catalog(
+    source: DataSource, scope: Scope | None = None
+) -> tuple[dict[str, Evidence], str]:
     catalog: dict[str, Evidence] = {}
     lines: list[str] = []
 
-    for e in source.get_events():
+    for e in source.get_events(scope=scope):
         eid = f"evt:{e.id}"
         detail = f"[{e.timestamp:%H:%M}] {e.title} (source={e.source.value}, severity={e.severity.value})"
         catalog[eid] = Evidence(id=eid, kind="event", ref=e.id, detail=detail)
         lines.append(f"{eid}: {detail}")
 
     for name in source.list_metrics():
-        series = source.get_metric(name)
+        series = source.get_metric(name, scope=scope)
         if not series.points:
             continue
         mid = f"met:{name}"

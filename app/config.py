@@ -53,6 +53,13 @@ class Settings:
     # A Personal Access Token (PAT) is a standalone credential — preferred over the legacy key pair.
     datadog_access_token: str = field(default_factory=lambda: _get("DATADOG_ACCESS_TOKEN"))
     datadog_site: str = field(default_factory=lambda: _get("DATADOG_SITE", "datadoghq.com"))
+    # "tenant" is not a native Datadog concept; the tag key that represents it is
+    # org-specific, so it's configurable (env is the standard environment tag).
+    datadog_tenant_tag: str = field(default_factory=lambda: _get("DATADOG_TENANT_TAG", "tenant"))
+    # A widely-emitted metric used only to enumerate distinct env/tenant tag values
+    # for the scope dropdowns. Org-specific — must be a metric that carries the tags.
+    datadog_discovery_metric: str = field(
+        default_factory=lambda: _get("DATADOG_DISCOVERY_METRIC", "system.cpu.user"))
 
     # App
     data_source: str = field(default_factory=lambda: _get("COPILOT_DATA_SOURCE", "replay").lower())

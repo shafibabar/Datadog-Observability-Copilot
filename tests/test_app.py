@@ -97,7 +97,8 @@ def test_messages_persist_and_reload(wired):
     client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})
     convo = client.get(f"/api/conversations/{cid}").json()
     assert [m["role"] for m in convo["messages"]] == ["user", "assistant"]
-    assert convo["title"].startswith("Why slow")
+    # Subject is derived from the investigation summary, not the raw question.
+    assert convo["title"].startswith("Checkout latency")
 
 
 def test_chat_empty_message_rerenders(wired):
@@ -119,6 +120,67 @@ def test_chat_blocks_offtopic_message(wired):
     # the off-topic prompt was not persisted into the conversation
     convo = client.get(f"/api/conversations/{cid}").json()
     assert convo["messages"] == []
+
+
+def _scope_body(**over):
+    body = {"environments": ["prod"], "tenants": ["acme"],
+            "start": "2026-07-01T00:00:00Z", "end": "2026-07-01T01:00:00Z"}
+    body.update(over)
+    return body
+
+
+def test_chat_accepts_and_persists_scope(wired):
+    cid = _new_conversation()
+    r = client.post(f"/api/conversations/{cid}/chat",
+                    json={"message": "Why slow?", "persona": "sre", "scope": _scope_body()})
+    assert r.status_code == 200
+    convo = client.get(f"/api/conversations/{cid}").json()
+    assert convo["scope"]["environments"] == ["prod"]
+
+
+def test_chat_rejects_scope_with_no_selection(wired):
+    cid = _new_conversation()
+    r = client.post(f"/api/conversations/{cid}/chat",
+                    json={"message": "Why slow?", "persona": "sre",
+                          "scope": _scope_body(environments=[], tenants=[])})
+    assert r.status_code == 400
+    assert "environment or tenant" in r.json()["error"]
+
+
+def test_chat_rejects_scope_over_seven_days(wired):
+    cid = _new_conversation()
+    r = client.post(f"/api/conversations/{cid}/chat",
+                    json={"message": "Why slow?", "persona": "sre",
+                          "scope": _scope_body(end="2026-07-30T00:00:00Z")})
+    assert r.status_code == 400
+
+
+def test_scopes_endpoint_lists_environments_and_tenants(wired):
+    data = client.get("/api/scopes").json()
+    assert data["environments"] and data["tenants"]        # replay's static set
+    assert "production" in data["environments"]
+
+
+def test_rename_conversation_endpoint(wired):
+    cid = _new_conversation()
+    r = client.patch(f"/api/conversations/{cid}", json={"title": "Checkout incident"})
+    assert r.status_code == 200
+    assert client.get(f"/api/conversations/{cid}").json()["title"] == "Checkout incident"
+
+
+def test_rename_unknown_conversation_is_404(wired):
+    assert client.patch("/api/conversations/nope", json={"title": "x"}).status_code == 404
+
+
+def test_delete_conversation_endpoint(wired):
+    cid = _new_conversation()
+    client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})
+    assert client.delete(f"/api/conversations/{cid}").status_code == 200
+    assert client.get(f"/api/conversations/{cid}").status_code == 404
+
+
+def test_delete_unknown_conversation_is_404(wired):
+    assert client.delete("/api/conversations/nope").status_code == 404
 
 
 def test_artifact_endpoint_generates_incident_summary(wired):

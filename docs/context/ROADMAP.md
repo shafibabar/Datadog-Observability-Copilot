@@ -27,6 +27,21 @@ The smallest coherent, demoable, extension-ready slice.
 - [x] `metrics/` subsystem (separate from the product): JSONL data + Stop-hook collector + tolerant analytics + FastAPI/canvas live dashboard. Audits tokens, durations, planning-vs-implementation, cumulative tests, churn, docs/context growth. 30 specs. Run: `python -m uvicorn metrics.dashboard:app --port 8055`.
 - Deferred: capture tool-confirmation (Y/N) prompts; store per-call model for accurate cost.
 
+## Iteration 2 — scoped investigations + UX (in progress, 2026-07-08)
+Approved feature: make the copilot actually target the user's Datadog (env/tenant/window) instead of hardcoded org-wide golden signals, plus UX polish.
+- [x] **Scope model** (`Scope`: environments/tenants/window, ≥1 selection, ≤7-day span) persisted per conversation, overridable per turn, threaded into the DataSource query filter + window.
+- [x] **Scoped adapters**: Datadog builds `{(env:…) AND tenant:…}` filters + configurable tenant tag (`DATADOG_TENANT_TAG`) + scope window; Replay accepts-but-ignores scope.
+- [x] **Scope discovery** (`list_scopes`): Datadog enumerates env/tenant tag values (tenants narrowed to selected envs) via a discovery metric; Replay static set; `GET /api/scopes`.
+- [x] **Conversation subjects from the summary** (no extra LLM call); **rename**/**delete** (store + `Copilot` + `PATCH`/`DELETE` API).
+- [ ] **Control row UI** below the composer: Environment + Tenant (multiselect, fuzzy search), Duration (presets + custom, 7-day-capped calendar), Explain-as (persona, moved from the header). Send disabled until valid; updatable mid-conversation.
+- [ ] **Sidebar**: real subjects + rename/delete controls.
+- [ ] **Panels**: resizable + collapsible left/right; per-response copy button; remove the `⧉` header icon.
+
+### Deferred to a later iteration (logged, not built)
+- **Archive** conversations · **Share** conversations · **Group into Projects** · **Clear memory**.
+- **Wire the guard's Stage-2 LLM classifier** (a cheap relevance call for the ambiguous middle; today hybrid mode refuses the middle since no classifier is wired).
+- **Fix `.env` not loading at runtime** (blocks *live* Datadog scope discovery; build/tests unaffected — mocked).
+
 ## Later iterations (deferred, seams in place)
 - More artifacts: Executive Briefing, Customer Communication Draft, Technical Investigation Report, Post-Incident Report, Runbook Recommendation (confidence-gated, evidence-cited).
 - More personas; deeper continuous/proactive reasoning.

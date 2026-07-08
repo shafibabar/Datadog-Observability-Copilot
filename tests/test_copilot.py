@@ -13,6 +13,8 @@ ReplayAdapter — fully offline, no key, no spend.
 """
 import json
 
+import pytest
+
 from app.config import Settings
 from app.copilot import Copilot, _build_source, build_copilot
 from app.reasoning.engine import ReasoningEngine
@@ -109,11 +111,15 @@ def test_ask_persists_user_and_assistant_turns():
     assert "Checkout latency rose" in msgs[1]["content"]
 
 
-def test_ask_titles_conversation_from_first_question():
+def test_ask_titles_conversation_from_investigation_summary():
+    # The subject is derived from the investigation summary (no extra LLM call),
+    # not the raw question — a meaningful subject rather than "New investigation".
     cp, _llm, _store, _ = build_copilot_under_test()
     cid = cp.new_conversation()
     cp.ask(cid, "Why is checkout slow right now?", "sre")
-    assert cp.get_conversation(cid)["title"].startswith("Why is checkout slow")
+    title = cp.get_conversation(cid)["title"]
+    assert title.startswith("Checkout latency")     # from _payload()'s summary
+    assert title != "New investigation"
 
 
 def test_followup_feeds_prior_turns_as_memory():
@@ -208,6 +214,51 @@ def test_guard_can_be_disabled():
     cid = cp.new_conversation()
     cp.ask(cid, "Write me a poem about the ocean.", "sre")   # would be blocked if on
     assert llm.calls == 1 and store.latest(cid) is not None
+
+
+# --- scope (the investigation lens) ----------------------------------------
+
+def _valid_scope():
+    from datetime import datetime, timedelta, timezone
+
+    from app.telemetry.models import Scope
+    t0 = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    return Scope(environments=["prod"], tenants=["acme"], start=t0, end=t0 + timedelta(hours=1))
+
+
+def test_ask_persists_scope_on_the_conversation():
+    cp, _llm, store, _ = build_copilot_under_test()
+    cid = cp.new_conversation()
+    scope = _valid_scope()
+    cp.ask(cid, "Why is checkout slow?", "sre", scope=scope)
+    assert store.get_scope(cid) == scope
+
+
+def test_get_conversation_includes_scope():
+    cp, _llm, _store, _ = build_copilot_under_test()
+    cid = cp.new_conversation()
+    scope = _valid_scope()
+    cp.ask(cid, "Why is checkout slow?", "sre", scope=scope)
+    assert cp.get_conversation(cid)["scope"]["environments"] == ["prod"]
+
+
+# --- rename / delete --------------------------------------------------------
+
+def test_rename_conversation():
+    cp, _llm, _store, _ = build_copilot_under_test()
+    cid = cp.new_conversation()
+    cp.rename(cid, "Checkout incident — 09:02 deploy")
+    assert cp.get_conversation(cid)["title"] == "Checkout incident — 09:02 deploy"
+
+
+def test_delete_conversation():
+    cp, _llm, _store, _ = build_copilot_under_test()
+    cid = cp.new_conversation()
+    cp.ask(cid, "Why is checkout slow?", "sre")
+    cp.delete(cid)
+    assert cid not in {c["id"] for c in cp.list_conversations()}
+    with pytest.raises(KeyError):
+        cp.get_conversation(cid)
 
 
 # --- the production factory ------------------------------------------------

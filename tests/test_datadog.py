@@ -139,3 +139,109 @@ def test_time_range_is_one_hour_and_tz_aware():
     start, end = a.time_range()
     assert start.tzinfo is not None and end.tzinfo is not None
     assert (end - start).total_seconds() == 3600
+
+
+# --- scope: env/tenant become the Datadog query filter --------------------
+
+from datetime import timedelta  # noqa: E402
+
+from app.telemetry.models import Scope  # noqa: E402
+
+_S0 = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+
+
+def _capture_query(**kwargs):
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["query"] = req.url.params.get("query")
+        seen["from"] = req.url.params.get("from")
+        seen["to"] = req.url.params.get("to")
+        seen["tags"] = req.url.params.get("tags")
+        return httpx.Response(200, json={"series": []})
+
+    return _adapter(handler, metric_queries={"m": "avg:m{*}"}, **kwargs), seen
+
+
+def test_no_scope_keeps_wildcard():
+    a, seen = _capture_query()
+    a.get_metric("m", start=_S0, end=_S0 + timedelta(hours=1))
+    assert seen["query"] == "avg:m{*}"
+
+
+def test_scope_single_env_has_no_parens():
+    a, seen = _capture_query()
+    a.get_metric("m", scope=Scope(environments=["prod"], start=_S0, end=_S0 + timedelta(hours=1)))
+    assert seen["query"] == "avg:m{env:prod}"
+
+
+def test_scope_builds_env_or_and_tenant_and_filter():
+    a, seen = _capture_query()
+    a.get_metric("m", scope=Scope(environments=["prod", "staging"], tenants=["acme"],
+                                  start=_S0, end=_S0 + timedelta(hours=1)))
+    assert seen["query"] == "avg:m{(env:prod OR env:staging) AND tenant:acme}"
+
+
+def test_tenant_tag_is_configurable():
+    a, seen = _capture_query(tenant_tag="customer")
+    a.get_metric("m", scope=Scope(tenants=["acme"], start=_S0, end=_S0 + timedelta(hours=1)))
+    assert seen["query"] == "avg:m{customer:acme}"
+
+
+def test_scope_window_drives_metric_query_range():
+    a, seen = _capture_query()
+    end = _S0 + timedelta(hours=2)
+    a.get_metric("m", scope=Scope(environments=["prod"], start=_S0, end=end))
+    assert seen["from"] == str(int(_S0.timestamp()))
+    assert seen["to"] == str(int(end.timestamp()))
+
+
+def test_get_events_filters_single_valued_dims_by_tags():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["tags"] = req.url.params.get("tags")
+        seen["start"] = req.url.params.get("start")
+        return httpx.Response(200, json={"events": []})
+
+    a = _adapter(handler, tenant_tag="tenant")
+    a.get_events(scope=Scope(environments=["prod"], tenants=["acme"],
+                             start=_S0, end=_S0 + timedelta(hours=1)))
+    assert seen["tags"] == "env:prod,tenant:acme"
+    assert seen["start"] == str(int(_S0.timestamp()))
+
+
+# --- list_scopes: enumerate selectable environments / tenants -------------
+
+def _scopes_handler():
+    def handler(req: httpx.Request) -> httpx.Response:
+        q = req.url.params.get("query") or ""
+        if "by {env}" in q:
+            return httpx.Response(200, json={"series": [
+                {"tag_set": ["env:prod"]}, {"tag_set": ["env:staging"]}]})
+        if "by {tenant}" in q:
+            return httpx.Response(200, json={"series": [
+                {"tag_set": ["tenant:acme"]}, {"tag_set": ["tenant:globex"]}]})
+        return httpx.Response(200, json={"series": []})
+    return handler
+
+
+def test_list_scopes_returns_distinct_env_and_tenant_values():
+    a = _adapter(_scopes_handler(), discovery_metric="system.cpu.user")
+    scopes = a.list_scopes()
+    assert scopes["environments"] == ["prod", "staging"]
+    assert scopes["tenants"] == ["acme", "globex"]
+
+
+def test_list_scopes_scopes_tenants_to_selected_environments():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        q = req.url.params.get("query") or ""
+        if "by {tenant}" in q:
+            seen["tenant_q"] = q
+        return httpx.Response(200, json={"series": []})
+
+    a = _adapter(handler, discovery_metric="system.cpu.user")
+    a.list_scopes(environments=["prod", "staging"])
+    assert "(env:prod OR env:staging)" in seen["tenant_q"]

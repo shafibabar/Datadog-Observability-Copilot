@@ -293,3 +293,42 @@ def test_engine_history_is_optional_and_bounded():
     ReasoningEngine(src, llm, history_limit=4).investigate("now", history=long_history)
     assert "q19" in llm.last["user"]      # most recent kept
     assert "q0" not in llm.last["user"]    # oldest trimmed
+
+
+def test_engine_threads_scope_to_the_source():
+    """The investigation lens must reach the data layer: every source read the
+    engine makes carries the scope so live queries are filtered/windowed."""
+    from datetime import datetime, timezone
+
+    from app.telemetry.base import DataSource
+    from app.telemetry.models import Scope
+
+    class SpySource(DataSource):
+        source_type = "spy"
+
+        def __init__(self):
+            self.metric_scopes = []
+            self.event_scopes = []
+
+        def list_metrics(self):
+            return ["m"]
+
+        def get_metric(self, metric, start=None, end=None, scope=None):
+            self.metric_scopes.append(scope)
+            from app.telemetry.models import MetricSeries
+            return MetricSeries(metric=metric)
+
+        def get_events(self, start=None, end=None, scope=None):
+            self.event_scopes.append(scope)
+            return []
+
+        def time_range(self):
+            n = datetime(2026, 7, 1, tzinfo=timezone.utc)
+            return n, n
+
+    spy = SpySource()
+    scope = Scope(environments=["prod"], tenants=["acme"])
+    ReasoningEngine(spy, FakeLLM(_CANNED)).investigate("why?", scope=scope)
+
+    assert spy.metric_scopes == [scope]
+    assert spy.event_scopes and all(s == scope for s in spy.event_scopes)

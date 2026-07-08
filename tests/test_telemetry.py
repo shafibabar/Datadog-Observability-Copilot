@@ -128,3 +128,18 @@ def test_time_range_covers_events():
     events = a.get_events()
     assert start <= events[0].timestamp
     assert end >= events[-1].timestamp
+
+
+def test_replay_offers_static_scopes_offline():
+    a = ReplayAdapter()
+    scopes = a.list_scopes()
+    assert "production" in scopes["environments"]
+    assert scopes["tenants"]
+    # scope is accepted-but-ignored: a live-dated window must not clip the incident
+    from datetime import datetime, timedelta, timezone
+
+    from app.telemetry.models import Scope
+    future = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    scope = Scope(environments=["production"], start=future, end=future + timedelta(hours=1))
+    assert a.get_metric("api.latency.p95", scope=scope).points   # full series, unclipped
+    assert a.get_events(scope=scope)                             # events still returned

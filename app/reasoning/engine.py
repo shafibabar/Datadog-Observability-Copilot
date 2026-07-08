@@ -20,6 +20,7 @@ from app.reasoning.models import (
 )
 from app.reasoning.timeline import build_timeline
 from app.telemetry.base import DataSource
+from app.telemetry.models import Scope
 
 _SYSTEM = (
     "You are an experienced Site Reliability Engineer acting as an observability "
@@ -73,9 +74,10 @@ class ReasoningEngine:
         self,
         question: str | None = None,
         history: list[tuple[str, str]] | None = None,
+        scope: Scope | None = None,
     ) -> Investigation:
-        catalog, context = build_evidence_catalog(self._source)
-        timeline = build_timeline(self._source.get_events())
+        catalog, context = build_evidence_catalog(self._source, scope)
+        timeline = build_timeline(self._source.get_events(scope=scope))
 
         transcript = _format_history(history, self._history_limit)
         prompt = _build_user_prompt(context, question, transcript)

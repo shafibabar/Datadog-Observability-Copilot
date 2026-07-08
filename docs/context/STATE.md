@@ -5,8 +5,14 @@ _Last updated: 2026-07-08_
 ## Current gate
 Plan + Design **approved**. **Iteration 0 COMPLETE**; **Iteration 1 in progress**. **Scope/UI feature approved and in progress** (per-conversation Datadog scope: Environment/Tenant/Duration + persona dropdowns below the composer; real conversation subjects + rename/delete; resizable/collapsible panels; per-response copy). Grounded in **TDD** (see `TESTING.md`).
 
+## Scope/UI feature — progress
+- ✅ **Guard** finished + committed (`b0e9316`).
+- ✅ **Backend milestone 1** (scope model + scoped Datadog/Replay adapters + reasoning threading + store `scope_json`/delete/rename + API scope-validation/PATCH/DELETE).
+- ✅ **Backend milestone 2** (`list_scopes` discovery: Datadog tag-value enumeration with env→tenant narrowing; Replay static set; `/api/scopes`).
+- ⏭ **Next: UI milestones 3–5** — control row (Env·Tenant·Duration·Explain-as) below the composer with multiselect+fuzzy search and the 7-day calendar; conversation rename/delete + real subjects in the sidebar; resizable/collapsible panels; per-response copy; remove the `⧉` header icon.
+
 ## Tests
-**196 / 196 passing (100%).** No pending (red) specs. Latest: **finished the relevance & abuse guard** (`app/guard.py`) that was left red-ahead in the tree — pre-reasoning gate (deterministic Stage 1 blocks empty/over-long/injection + fast-allows on-topic & short in-context follow-ups; hybrid Stage 2 for the ambiguous middle, fails closed; `COPILOT_GUARD_*` settings; wired into `Copilot.ask` before persist/reason; `_SYSTEM` hardened to treat inputs as untrusted). Prior: fixed tab switch (+3); collector test-total (+4); Timeline tab (+10); keyless Claude CLI + Datadog PAT (+11).
+**231 / 231 passing (100%).** No pending (red) specs. Prior milestone: **finished the relevance & abuse guard** (`app/guard.py`) that was left red-ahead in the tree — pre-reasoning gate (deterministic Stage 1 blocks empty/over-long/injection + fast-allows on-topic & short in-context follow-ups; hybrid Stage 2 for the ambiguous middle, fails closed; `COPILOT_GUARD_*` settings; wired into `Copilot.ask` before persist/reason; `_SYSTEM` hardened to treat inputs as untrusted). Prior: fixed tab switch (+3); collector test-total (+4); Timeline tab (+10); keyless Claude CLI + Datadog PAT (+11).
 
 ## Known gap (deferred)
 `.env` is not being loaded at runtime (curl `/api/status` returns defaults: `data_source=replay`, no creds) even on the work laptop with real Datadog creds. Build + tests don't need it (HTTP mocked), but **live** Datadog scope discovery can't be exercised until this is fixed. Fix scheduled before live-validating the scope feature.

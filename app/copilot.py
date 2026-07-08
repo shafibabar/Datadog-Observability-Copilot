@@ -31,10 +31,19 @@ from app.workspace.store import WorkspaceStore
 _NEW_TITLE = "New investigation"
 
 
-def _title_from(message: str) -> str:
-    """A short, single-line conversation title derived from the first question."""
-    line = " ".join((message or "").split())
-    return (line[:48] + "…") if len(line) > 48 else (line or _NEW_TITLE)
+def _subject_from(summary: str, fallback: str = "") -> str:
+    """A short conversation subject derived from the investigation summary (its
+    first sentence, trimmed) — a meaningful title with no extra LLM call. Falls
+    back to the raw question, then to the default sentinel."""
+    text = " ".join((summary or "").split())
+    if not text:
+        text = " ".join((fallback or "").split())
+    for sep in (". ", "; ", " — "):
+        i = text.find(sep)
+        if i != -1:
+            text = text[:i]
+            break
+    return (text[:48].rstrip() + "…") if len(text) > 48 else (text or _NEW_TITLE)
 
 
 class Copilot:
@@ -70,19 +79,34 @@ class Copilot:
     def list_conversations(self) -> list[dict]:
         return [c.model_dump(mode="json") for c in self._store.list_conversations()]
 
+    def list_scopes(self, environments: list[str] | None = None) -> dict[str, list[str]]:
+        """Environments/tenants selectable for the scope dropdowns, from the live
+        data source (tenants narrowed to the selected environments)."""
+        return self._source.list_scopes(environments)
+
     def get_conversation(self, cid: str) -> dict:
         meta = self._store.get_workspace(cid)  # raises KeyError if unknown
+        scope = self._store.get_scope(cid)
         return {
             "id": cid,
             "title": meta.title,
             "source_type": meta.source_type,
+            "scope": scope.model_dump(mode="json") if scope else None,
             "messages": [m.model_dump(mode="json") for m in self._store.get_messages(cid)],
             "workspace": self._workspace_payload(cid),
         }
 
+    def rename(self, cid: str, title: str) -> None:
+        self._store.get_workspace(cid)  # validate (raises KeyError) before writing
+        self._store.set_title(cid, title.strip() or _NEW_TITLE)
+
+    def delete(self, cid: str) -> None:
+        self._store.get_workspace(cid)  # validate (raises KeyError) before deleting
+        self._store.delete_workspace(cid)
+
     # --- the chat loop -----------------------------------------------------
 
-    def ask(self, cid: str, message: str, persona: str) -> dict:
+    def ask(self, cid: str, message: str, persona: str, scope=None) -> dict:
         self._store.get_workspace(cid)  # validate (raises KeyError) before writing
 
         # Pre-reasoning gate: an off-topic / injection message is refused BEFORE
@@ -98,16 +122,24 @@ class Copilot:
             if not verdict.allowed:
                 return self._blocked_view(cid, persona, verdict)
 
+        # The investigation lens can change per turn; persist the latest one and
+        # fall back to whatever was last used on this conversation.
+        if scope is not None:
+            self._store.set_scope(cid, scope)
+        else:
+            scope = self._store.get_scope(cid)
+
         # History is the conversation *before* this turn → real follow-up memory.
         history = [(m.role, m.content) for m in self._store.get_messages(cid)]
         self._store.add_message(cid, role="user", content=message, persona=persona)
 
+        investigation = self._engine.investigate(message or None, history=history, scope=scope)
+        self._store.record(cid, investigation)
+
+        # Give a brand-new conversation a meaningful subject from the summary.
         meta = self._store.get_workspace(cid)
         if meta.title in ("", _NEW_TITLE):
-            self._store.set_title(cid, _title_from(message))
-
-        investigation = self._engine.investigate(message or None, history=history)
-        self._store.record(cid, investigation)
+            self._store.set_title(cid, _subject_from(investigation.summary, message))
 
         view = self._view(cid, persona)
         self._store.add_message(cid, role="assistant", content=view["reply"], persona=persona)
@@ -239,6 +271,7 @@ def _build_source(settings) -> DataSource:
             app_key=settings.datadog_app_key,
             access_token=settings.datadog_access_token,
             site=settings.datadog_site,
+            tenant_tag=settings.datadog_tenant_tag,
         )
     from app.telemetry.replay import ReplayAdapter
 

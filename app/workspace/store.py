@@ -21,6 +21,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from app.reasoning.models import Confidence, Investigation
+from app.telemetry.models import Scope
 from app.workspace.sections import hypothesis_key
 
 
@@ -83,7 +84,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     source_type TEXT NOT NULL,
     created_at  TEXT NOT NULL,
     title       TEXT NOT NULL DEFAULT '',
-    updated_at  TEXT NOT NULL DEFAULT ''
+    updated_at  TEXT NOT NULL DEFAULT '',
+    scope_json  TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS messages (
     id           TEXT PRIMARY KEY,
@@ -140,7 +142,18 @@ class WorkspaceStore:
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Additive migrations for DBs created by an earlier schema. `CREATE TABLE
+        IF NOT EXISTS` won't add a column to an existing table, so add any missing
+        ones here (idempotent)."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(workspaces)")}
+        if "scope_json" not in cols:
+            self._conn.execute(
+                "ALTER TABLE workspaces ADD COLUMN scope_json TEXT NOT NULL DEFAULT ''"
+            )
 
     def close(self) -> None:
         self._conn.commit()
@@ -180,6 +193,32 @@ class WorkspaceStore:
         self._conn.execute(
             "UPDATE workspaces SET title = ? WHERE id = ?", (title, workspace_id)
         )
+        self._conn.commit()
+
+    def get_scope(self, workspace_id: str) -> Scope | None:
+        """The investigation lens persisted for this conversation, or None if it
+        was never set."""
+        row = self._conn.execute(
+            "SELECT scope_json FROM workspaces WHERE id = ?", (workspace_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"No workspace {workspace_id!r}")
+        raw = row["scope_json"]
+        return Scope.model_validate_json(raw) if raw else None
+
+    def set_scope(self, workspace_id: str, scope: Scope) -> None:
+        self._conn.execute(
+            "UPDATE workspaces SET scope_json = ? WHERE id = ?",
+            (scope.model_dump_json(), workspace_id),
+        )
+        self._conn.commit()
+
+    def delete_workspace(self, workspace_id: str) -> None:
+        """Remove a conversation and all of its history (messages, snapshots,
+        reasoning objects, confidence points). Idempotent."""
+        for table in ("confidence_history", "reasoning_objects", "snapshots", "messages"):
+            self._conn.execute(f"DELETE FROM {table} WHERE workspace_id = ?", (workspace_id,))
+        self._conn.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
         self._conn.commit()
 
     def _touch(self, workspace_id: str, when: datetime) -> None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from app.telemetry.models import MetricSeries, TelemetryEvent
+from app.telemetry.models import MetricSeries, Scope, TelemetryEvent
 
 
 class DataSource(ABC):
@@ -26,10 +26,14 @@ class DataSource(ABC):
         metric: str,
         start: datetime | None = None,
         end: datetime | None = None,
+        scope: Scope | None = None,
     ) -> MetricSeries:
         """Return one metric's series, optionally clipped to [start, end].
 
-        Raises KeyError if the metric is unknown.
+        A `scope` narrows the query to selected environments/tenants and (when it
+        carries a window) overrides start/end. Sources that cannot honour a scope
+        (e.g. the scripted replay) ignore it. Raises KeyError if the metric is
+        unknown.
         """
 
     @abstractmethod
@@ -37,9 +41,17 @@ class DataSource(ABC):
         self,
         start: datetime | None = None,
         end: datetime | None = None,
+        scope: Scope | None = None,
     ) -> list[TelemetryEvent]:
-        """Return normalized events in chronological order, optionally clipped."""
+        """Return normalized events in chronological order, optionally clipped and
+        scoped to selected environments/tenants."""
 
     @abstractmethod
     def time_range(self) -> tuple[datetime, datetime]:
         """The (start, end) window of data this source covers."""
+
+    def list_scopes(self, environments: list[str] | None = None) -> dict[str, list[str]]:
+        """Enumerate the environments/tenants a user can scope an investigation to,
+        for the scope dropdowns. When `environments` is given, tenants are narrowed
+        to those hosted on the selected environments. Default: nothing to offer."""
+        return {"environments": [], "tenants": []}

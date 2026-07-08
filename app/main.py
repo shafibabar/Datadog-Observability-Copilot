@@ -9,6 +9,7 @@ keys are placed.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -18,6 +19,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.copilot import Copilot, build_copilot
+from app.telemetry.models import Scope
 
 _WEB = Path(__file__).resolve().parent / "web"
 _INDEX = _WEB / "templates" / "index.html"
@@ -65,10 +67,37 @@ class NewConversationRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     persona: str = "sre"
+    scope: Scope | None = None
 
 
 class ArtifactRequest(BaseModel):
     key: str = "incident_summary"
+
+
+class RenameRequest(BaseModel):
+    title: str
+
+
+def _clamp_scope(scope: Scope | None) -> Scope | None:
+    """Enforce 'end ≤ now' server-side (the calendar does the same client-side),
+    so a window can never reach into the future regardless of the client clock."""
+    if scope is None or scope.end is None:
+        return scope
+    now = datetime.now(timezone.utc)
+    if scope.end > now:
+        return scope.model_copy(update={"end": now})
+    return scope
+
+
+@app.get("/api/scopes")
+def scopes(environments: str = "") -> JSONResponse:
+    """Selectable environments/tenants for the scope dropdowns. `environments` is
+    an optional comma-separated filter that narrows the tenant list."""
+    copilot = _get_copilot()
+    if copilot is None:
+        return JSONResponse({"environments": [], "tenants": [], **_NOT_CONFIGURED}, status_code=503)
+    selected = [e for e in (environments.split(",") if environments else []) if e.strip()]
+    return JSONResponse(copilot.list_scopes(selected or None))
 
 
 @app.get("/api/conversations")
@@ -104,12 +133,41 @@ def chat(cid: str, req: ChatRequest) -> JSONResponse:
     copilot = _get_copilot()
     if copilot is None:
         return JSONResponse(_NOT_CONFIGURED, status_code=503)
+    scope = _clamp_scope(req.scope)
+    if scope is not None:
+        err = scope.validation_error()
+        if err:
+            return JSONResponse({"error": err}, status_code=400)
     try:
         # A non-empty message is a question (investigate + persist); an empty
         # message is a pure persona switch / re-render of the latest snapshot.
         if req.message.strip():
-            return JSONResponse(copilot.ask(cid, req.message, req.persona))
+            return JSONResponse(copilot.ask(cid, req.message, req.persona, scope=scope))
         return JSONResponse(copilot.rerender(cid, req.persona))
+    except KeyError:
+        return JSONResponse({"error": f"Unknown conversation: {cid!r}"}, status_code=404)
+
+
+@app.patch("/api/conversations/{cid}")
+def rename_conversation(cid: str, req: RenameRequest) -> JSONResponse:
+    copilot = _get_copilot()
+    if copilot is None:
+        return JSONResponse(_NOT_CONFIGURED, status_code=503)
+    try:
+        copilot.rename(cid, req.title)
+        return JSONResponse(copilot.get_conversation(cid))
+    except KeyError:
+        return JSONResponse({"error": f"Unknown conversation: {cid!r}"}, status_code=404)
+
+
+@app.delete("/api/conversations/{cid}")
+def delete_conversation(cid: str) -> JSONResponse:
+    copilot = _get_copilot()
+    if copilot is None:
+        return JSONResponse(_NOT_CONFIGURED, status_code=503)
+    try:
+        copilot.delete(cid)
+        return JSONResponse({"ok": True})
     except KeyError:
         return JSONResponse({"error": f"Unknown conversation: {cid!r}"}, status_code=404)
 

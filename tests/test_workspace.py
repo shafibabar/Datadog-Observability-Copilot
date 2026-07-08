@@ -283,6 +283,60 @@ def test_set_title_updates_it(store):
     assert store.get_workspace(wid).title == "Renamed incident"
 
 
+# --- scope persistence + delete -------------------------------------------
+
+def test_scope_defaults_to_none_and_round_trips(store):
+    from datetime import timedelta
+
+    from app.telemetry.models import Scope
+
+    wid = store.create_workspace(incident_id="i", source_type="datadog")
+    assert store.get_scope(wid) is None
+
+    t0 = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    scope = Scope(environments=["prod", "staging"], tenants=["acme"], start=t0, end=t0 + timedelta(hours=2))
+    store.set_scope(wid, scope)
+    assert store.get_scope(wid) == scope
+
+
+def test_delete_workspace_removes_it_and_its_history(store):
+    wid = store.create_workspace(incident_id="i", source_type="replay")
+    store.add_message(wid, role="user", content="hi")
+    store.record(wid, make_investigation())
+
+    store.delete_workspace(wid)
+
+    assert wid not in {c.id for c in store.list_conversations()}
+    with pytest.raises(KeyError):
+        store.get_workspace(wid)
+    assert store.get_messages(wid) == []
+    assert store.latest(wid) is None
+    assert store.reasoning_objects(wid) == []
+
+
+def test_scope_column_is_added_to_a_preexisting_db(tmp_path):
+    """A DB created before scope existed must gain the column without data loss."""
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE workspaces (id TEXT PRIMARY KEY, incident_id TEXT NOT NULL, "
+        "source_type TEXT NOT NULL, created_at TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', "
+        "updated_at TEXT NOT NULL DEFAULT '');"
+    )
+    conn.execute(
+        "INSERT INTO workspaces (id, incident_id, source_type, created_at) VALUES (?,?,?,?)",
+        ("w1", "i", "replay", datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+    store = WorkspaceStore(db)          # opening must migrate, not crash
+    assert store.get_workspace("w1").title == ""
+    assert store.get_scope("w1") is None
+
+
 def test_list_conversations_summarises_and_orders_by_recent_activity(store):
     first = store.create_workspace(incident_id="i", source_type="replay", title="First")
     second = store.create_workspace(incident_id="i", source_type="replay", title="Second")

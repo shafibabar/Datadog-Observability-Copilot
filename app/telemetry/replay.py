@@ -24,6 +24,7 @@ from app.telemetry.models import (
     EventSource,
     MetricPoint,
     MetricSeries,
+    Scope,
     Severity,
     TelemetryEvent,
 )
@@ -123,12 +124,25 @@ class ReplayAdapter(DataSource):
     def list_metrics(self) -> list[str]:
         return list(self._series.keys())
 
+    # A small static scope set so the dropdowns (and their tests) work fully
+    # offline against the scripted incident. The filter is intentionally a no-op:
+    # the replay has no real per-environment tenancy.
+    _ENVIRONMENTS = ["production", "staging"]
+    _TENANTS = ["acme-corp", "globex", "initech"]
+
+    def list_scopes(self, environments: list[str] | None = None) -> dict[str, list[str]]:
+        return {"environments": list(self._ENVIRONMENTS), "tenants": list(self._TENANTS)}
+
     def get_metric(
         self,
         metric: str,
         start: datetime | None = None,
         end: datetime | None = None,
+        scope: Scope | None = None,
     ) -> MetricSeries:
+        # `scope` is accepted for interface parity but ignored: the replay is a
+        # fixed, scripted historical incident with no environments/tenants and a
+        # window that must not be clipped by a live scope's dates.
         if metric not in self._series:
             raise KeyError(metric)
         s = self._series[metric]
@@ -142,7 +156,8 @@ class ReplayAdapter(DataSource):
         self,
         start: datetime | None = None,
         end: datetime | None = None,
-    ) -> list[TelemetryEvent]:
+        scope: Scope | None = None,
+    ) -> list[TelemetryEvent]:  # `scope` ignored — see get_metric.
         events = [
             e for e in self._events
             if (start is None or e.timestamp >= start) and (end is None or e.timestamp <= end)
