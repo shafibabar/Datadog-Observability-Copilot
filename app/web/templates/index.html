@@ -42,29 +42,30 @@
             <button type="submit" id="send" class="send" title="Send" aria-label="Send">↑</button>
           </form>
           <div class="controls" id="controls">
-            <div class="control" id="ctl-env"></div>
-            <div class="control" id="ctl-tenant"></div>
-            <div class="control" id="ctl-duration">
-              <select id="duration-select" class="pill-select" aria-label="Duration">
-                <option value="1h" selected>Last 1 hour</option>
-                <option value="2h">Last 2 hours</option>
-                <option value="4h">Last 4 hours</option>
-                <option value="8h">Last 8 hours</option>
-                <option value="1d">Last 1 day</option>
-                <option value="2d">Last 2 days</option>
-                <option value="1w">Last 1 week</option>
-                <option value="custom">Custom range…</option>
-              </select>
+            <div class="scope-menu" id="scope-menu">
+              <button type="button" id="scope-trigger" class="scope-trigger" aria-haspopup="true">
+                <span id="scope-summary">Set scope</span><span class="ms-caret">⌄</span>
+              </button>
+              <div class="scope-panel" id="scope-panel" hidden></div>
             </div>
-            <div class="control" id="ctl-persona">
-              <select id="persona" class="pill-select" aria-label="Explain as">
-                <option value="support">Support Engineer</option>
-                <option value="sre" selected>Site Reliability Engineer</option>
-                <option value="swe">Software Engineer</option>
-                <option value="pm">Product Manager</option>
-                <option value="leadership">Engineering Leadership</option>
-              </select>
-            </div>
+            <!-- hidden state holders the scope menu reads/writes -->
+            <select id="duration-select" class="sr-only" tabindex="-1" aria-hidden="true">
+              <option value="1h" selected>Last 1 hour</option>
+              <option value="2h">Last 2 hours</option>
+              <option value="4h">Last 4 hours</option>
+              <option value="8h">Last 8 hours</option>
+              <option value="1d">Last 1 day</option>
+              <option value="2d">Last 2 days</option>
+              <option value="1w">Last 1 week</option>
+              <option value="custom">Custom range…</option>
+            </select>
+            <select id="persona" class="sr-only" tabindex="-1" aria-hidden="true">
+              <option value="support">Support Engineer</option>
+              <option value="sre" selected>Site Reliability Engineer</option>
+              <option value="swe">Software Engineer</option>
+              <option value="pm">Product Manager</option>
+              <option value="leadership">Engineering Leadership</option>
+            </select>
           </div>
         </div>
         <div id="scope-hint" class="scope-hint"></div>

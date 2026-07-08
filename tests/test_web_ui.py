@@ -22,11 +22,17 @@ def _js() -> str:
     return client.get("/static/app.js").text
 
 
-def test_control_row_exists_below_the_composer():
+def test_scope_menu_below_the_composer():
     html = _html()
-    for cid in ("ctl-env", "ctl-tenant", "ctl-duration", "ctl-persona"):
-        assert cid in html
+    assert 'id="scope-trigger"' in html and 'id="scope-panel"' in html
     assert html.index('id="composer"') < html.index('id="controls"')
+
+
+def test_scope_menu_offers_all_four_categories_with_drilldown():
+    js = _js()
+    for category in ("Environment", "Tenant", "Duration", "Explain as"):
+        assert category in js
+    assert "scope-row" in js and "scope-opt" in js    # drill-down category rows + option rows
 
 
 def test_persona_selector_moved_out_of_header_into_controls():

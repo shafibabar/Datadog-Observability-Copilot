@@ -96,98 +96,153 @@ function fuzzy(text, q) {
 }
 
 // ---------- multi-select with type-to-filter ----------
-const SEARCH_THRESHOLD = 8;  // only show the filter box once a list gets long
+// ---------- scope menu (one trigger + drill-down submenus, Claude-style) ----------
+const SEARCH_THRESHOLD = 8;   // only show a filter box once a list gets long
+let envOptions = [];
+let tenantOptions = [];
+let scopeView = "root";       // "root" | "env" | "tenant" | "duration" | "persona"
 
-function createMultiSelect(mount, { label, onChange }) {
-  mount.innerHTML = "";
-  const box = document.createElement("div");
-  box.className = "ms";
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "ms-btn empty";
-  const panel = document.createElement("div");
-  panel.className = "ms-panel";
-  panel.hidden = true;
-  const search = document.createElement("input");
-  search.className = "ms-search";
-  search.placeholder = "Filter…";
-  search.hidden = true;
-  const list = document.createElement("div");
-  list.className = "ms-list";
-  panel.append(search, list);
-  box.append(btn, panel);
-  mount.append(box);
+const PERSONA_META = {
+  support:    ["Support Engineer", "Plain-language customer impact & next steps"],
+  sre:        ["Site Reliability Engineer", "Deep technical: health, timeline, root cause"],
+  swe:        ["Software Engineer", "Code-focused: services, timeline, fixes"],
+  pm:         ["Product Manager", "Business impact & next steps, minimal jargon"],
+  leadership: ["Engineering Leadership", "High-level impact, confidence, actions"],
+};
+const PERSONA_SHORT = { support: "Support", sre: "SRE", swe: "SWE", pm: "PM", leadership: "Leadership" };
+const DURATION_SHORT = { "1h": "1h", "2h": "2h", "4h": "4h", "8h": "8h", "1d": "1d", "2d": "2d", "1w": "1w", custom: "Custom" };
 
-  let options = [];
-  const selected = new Set();
+const scopeMenuEl = $("scope-menu");
+const scopeTrigger = $("scope-trigger");
+const scopeSummaryEl = $("scope-summary");
+const scopePanel = $("scope-panel");
 
-  function renderBtn() {
-    const n = selected.size;
-    let text = label;
-    if (n === 1) text = `${label}: ${[...selected][0]}`;
-    else if (n > 1) text = `${label} · ${n}`;
-    btn.textContent = text;
-    const caret = document.createElement("span");
-    caret.className = "ms-caret";
-    caret.textContent = "⌄";
-    btn.appendChild(caret);
-    btn.classList.toggle("empty", n === 0);
-    btn.classList.toggle("active", n > 0);
+function toggleIn(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
+function durationText() { return durationSel.selectedOptions[0] ? durationSel.selectedOptions[0].textContent : "Last 1 hour"; }
+function personaText() { return (PERSONA_META[personaSel.value] || ["Site Reliability Engineer"])[0]; }
+function envValueText() { const e = scope.environments; return !e.length ? "Any" : e.length === 1 ? e[0] : `${e.length} selected`; }
+function tenantValueText() { const t = scope.tenants; return !t.length ? "Any" : t.length === 1 ? t[0] : `${t.length} selected`; }
+
+function renderScopeTrigger() {
+  const parts = [];
+  if (!scope.environments.length && !scope.tenants.length) {
+    parts.push("Set environment / tenant");
+  } else {
+    if (scope.environments.length) parts.push(scope.environments.length === 1 ? scope.environments[0] : `${scope.environments.length} envs`);
+    if (scope.tenants.length) parts.push(scope.tenants.length === 1 ? scope.tenants[0] : `${scope.tenants.length} tenants`);
   }
-  function renderList() {
-    const q = search.value.trim().toLowerCase();
-    list.innerHTML = "";
-    const shown = options.filter((o) => !q || fuzzy(o.toLowerCase(), q));
-    if (!shown.length) { list.innerHTML = `<div class="ms-empty">No matches</div>`; return; }
-    for (const o of shown) {
-      const row = document.createElement("label");
-      row.className = "ms-opt";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = selected.has(o);
-      cb.onchange = () => {
-        cb.checked ? selected.add(o) : selected.delete(o);
-        renderBtn();
-        onChange && onChange([...selected]);
-      };
-      const span = document.createElement("span");
-      span.textContent = o;
-      row.append(cb, span);
-      list.append(row);
-    }
-  }
-  btn.onclick = () => {
-    panel.hidden = !panel.hidden;
-    if (!panel.hidden) {
-      search.value = "";
-      search.hidden = options.length <= SEARCH_THRESHOLD;
-      renderList();
-      if (!search.hidden) search.focus();
-    }
-  };
-  search.oninput = renderList;
-  document.addEventListener("click", (e) => { if (!box.contains(e.target)) panel.hidden = true; });
-  renderBtn();
-
-  return {
-    setOptions(next) {
-      options = (next || []).slice();
-      for (const s of [...selected]) if (!options.includes(s)) selected.delete(s);
-      renderBtn();
-      if (!panel.hidden) renderList();
-    },
-    setSelected(vals) {
-      selected.clear();
-      for (const v of vals || []) selected.add(v);
-      renderBtn();
-      if (!panel.hidden) renderList();
-    },
-    getSelected() { return [...selected]; },
-  };
+  parts.push(DURATION_SHORT[durationSel.value] || "1h");
+  parts.push(PERSONA_SHORT[personaSel.value] || "SRE");
+  scopeSummaryEl.textContent = parts.join("  ·  ");
 }
 
-let envMS = null;
-let tenantMS = null;
+function openScopeMenu() { scopeView = "root"; renderScope(); scopePanel.hidden = false; }
+function closeScopeMenu() { scopeView = "root"; scopePanel.hidden = true; }
+
+function renderScope() {
+  scopePanel.innerHTML = "";
+  if (scopeView === "root") renderScopeRoot();
+  else renderScopeCategory(scopeView);
+}
+
+function catRow(label, value, view) {
+  const r = document.createElement("button");
+  r.type = "button"; r.className = "scope-row";
+  r.innerHTML = `<span class="sr-label">${escapeHtml(label)}</span>` +
+    `<span class="sr-value">${escapeHtml(value)}</span><span class="sr-chev">›</span>`;
+  r.onclick = () => { scopeView = view; renderScope(); };
+  return r;
+}
+
+function renderScopeRoot() {
+  const list = document.createElement("div"); list.className = "scope-list";
+  list.append(
+    catRow("Environment", envValueText(), "env"),
+    catRow("Tenant", tenantValueText(), "tenant"),
+    catRow("Duration", durationText(), "duration"),
+    catRow("Explain as", personaText(), "persona"),
+  );
+  scopePanel.append(list);
+}
+
+function backHeader(title) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "scope-back";
+  b.innerHTML = `‹&nbsp;<span>${escapeHtml(title)}</span>`;
+  b.onclick = () => { scopeView = "root"; renderScope(); };
+  return b;
+}
+
+function optRow(text, checked, onClick, desc) {
+  const r = document.createElement("button");
+  r.type = "button"; r.className = "scope-opt" + (checked ? " checked" : "");
+  const descHtml = desc ? `<span class="so-desc">${escapeHtml(desc)}</span>` : "";
+  r.innerHTML = `<span class="so-main"><span class="so-text">${escapeHtml(text)}</span>${descHtml}</span>` +
+    `<span class="so-check">${checked ? "✓" : ""}</span>`;
+  r.onclick = onClick;
+  return r;
+}
+
+function renderMultiCategory(title, options, selectedArr, onToggle) {
+  scopePanel.append(backHeader(title));
+  if (options.length > SEARCH_THRESHOLD) {
+    const s = document.createElement("input");
+    s.className = "scope-search"; s.placeholder = "Filter…";
+    s.oninput = () => paint(s.value.trim().toLowerCase());
+    scopePanel.append(s);
+  }
+  const list = document.createElement("div"); list.className = "scope-list";
+  scopePanel.append(list);
+  paint("");
+  function paint(q) {
+    list.innerHTML = "";
+    const shown = options.filter((o) => !q || fuzzy(o.toLowerCase(), q));
+    if (!shown.length) { list.innerHTML = `<div class="scope-empty">No matches</div>`; return; }
+    for (const o of shown) list.append(optRow(o, selectedArr().includes(o), () => onToggle(o)));
+  }
+}
+
+function renderScopeCategory(cat) {
+  if (cat === "env") {
+    renderMultiCategory("Environment", envOptions, () => scope.environments, (o) => {
+      toggleIn(scope.environments, o);
+      loadScopes(scope.environments.length ? scope.environments : undefined)
+        .then(() => { if (scopeView === "env") renderScope(); });
+      renderScope(); renderScopeTrigger(); refreshComposer();
+    });
+  } else if (cat === "tenant") {
+    renderMultiCategory("Tenant", tenantOptions, () => scope.tenants, (o) => {
+      toggleIn(scope.tenants, o);
+      renderScope(); renderScopeTrigger(); refreshComposer();
+    });
+  } else if (cat === "duration") {
+    scopePanel.append(backHeader("Duration"));
+    const list = document.createElement("div"); list.className = "scope-list";
+    for (const opt of durationSel.options) {
+      const isCustom = opt.value === "custom";
+      list.append(optRow(opt.textContent, durationSel.value === opt.value, () => {
+        if (isCustom) { closeScopeMenu(); openRangeModal(); return; }
+        durationSel.value = opt.value; prevDuration = opt.value;
+        const c = durationSel.querySelector('option[value="custom"]');
+        if (c) c.textContent = "Custom range…";
+        scopeView = "root"; renderScope(); renderScopeTrigger(); refreshComposer();
+      }));
+    }
+    scopePanel.append(list);
+  } else if (cat === "persona") {
+    scopePanel.append(backHeader("Explain as"));
+    const list = document.createElement("div"); list.className = "scope-list";
+    for (const key of Object.keys(PERSONA_META)) {
+      const [label, desc] = PERSONA_META[key];
+      list.append(optRow(label, personaSel.value === key, () => {
+        personaSel.value = key;
+        scopeView = "root"; renderScope(); renderScopeTrigger();
+        switchPersona();   // re-frame the latest reply through the new lens
+      }, desc));
+    }
+    scopePanel.append(list);
+  }
+}
 
 // ---------- scope ----------
 function currentWindow() {
@@ -238,6 +293,7 @@ function refreshComposer() {
   genSummaryBtn.disabled = !state.configured || !state.currentId || state.busy;
   scopeHint.textContent =
     (state.configured && state.currentId && !state.busy) ? scopeMessage() : "";
+  renderScopeTrigger();
 }
 
 function toLocalInput(d) {
@@ -296,6 +352,7 @@ function applyRange() {
   prevDuration = "custom";
   closeRangeModal();
   refreshComposer();
+  if (!scopePanel.hidden) { scopeView = "root"; renderScope(); }
 }
 
 function cancelRange() {
@@ -310,40 +367,28 @@ async function loadScopes(selectedEnvs) {
     ? `?environments=${encodeURIComponent(selectedEnvs.join(","))}` : "";
   const { ok, data } = await api("GET", `/api/scopes${qs}`);
   if (!ok) return;
-  if (!selectedEnvs) envMS.setOptions(data.environments || []);
-  tenantMS.setOptions(data.tenants || []);
+  if (!selectedEnvs) envOptions = data.environments || [];
+  tenantOptions = data.tenants || [];
 }
 
 function setupControls() {
-  envMS = createMultiSelect($("ctl-env"), {
-    label: "Environment", placeholder: "Any environment",
-    onChange: (vals) => {
-      scope.environments = vals;
-      loadScopes(vals).then(() => { scope.tenants = tenantMS.getSelected(); refreshComposer(); });
-      refreshComposer();
-    },
+  scopeTrigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (scopePanel.hidden) openScopeMenu(); else closeScopeMenu();
   });
-  tenantMS = createMultiSelect($("ctl-tenant"), {
-    label: "Tenant", placeholder: "Any tenant",
-    onChange: (vals) => { scope.tenants = vals; refreshComposer(); },
-  });
-
-  durationSel.addEventListener("change", () => {
-    if (durationSel.value === "custom") {
-      openRangeModal();               // custom → pop up the From/To pickers
-    } else {
-      prevDuration = durationSel.value;
-      const opt = durationSel.querySelector('option[value="custom"]');
-      if (opt) opt.textContent = "Custom range…";   // reset any prior custom label
-      refreshComposer();
-    }
+  // Keep clicks inside the panel from reaching the outside-close handler below.
+  // (Drilling into a submenu rebuilds the panel, detaching the clicked row; without
+  // this, the bubbled click would look "outside" and slam the menu shut.)
+  scopePanel.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", (e) => {
+    if (!scopeMenuEl.contains(e.target)) scopePanel.hidden = true;
   });
   rangeStart.addEventListener("change", () => { setRangeBounds(); rangeError.textContent = ""; });
   rangeEnd.addEventListener("change", () => { rangeError.textContent = ""; });
   rangeApply.addEventListener("click", applyRange);
   rangeCancel.addEventListener("click", cancelRange);
   rangeModal.addEventListener("click", (e) => { if (e.target === rangeModal) cancelRange(); });
-  personaSel.addEventListener("change", switchPersona);
+  renderScopeTrigger();
 }
 
 // ---------- chat rendering ----------
@@ -595,13 +640,20 @@ async function loadConversations() {
 }
 
 async function applyScopeToControls(s) {
-  // Reflect a conversation's persisted scope back into the controls when opened,
-  // so the widgets show what the investigation is actually scoped to.
+  // Reflect a conversation's persisted scope back into the menu when opened,
+  // so the trigger/summary show what the investigation is actually scoped to.
   scope.environments = (s && s.environments) || [];
   scope.tenants = (s && s.tenants) || [];
-  envMS.setSelected(scope.environments);
   await loadScopes(scope.environments.length ? scope.environments : undefined);
-  tenantMS.setSelected(scope.tenants);
+  if (s && s.start && s.end) {
+    durationSel.value = "custom";
+    prevDuration = "custom";
+    rangeStart.value = toLocalInput(new Date(s.start));
+    rangeEnd.value = toLocalInput(new Date(s.end));
+    const opt = durationSel.querySelector('option[value="custom"]');
+    if (opt) opt.textContent = `${shortDate(new Date(s.start))} – ${shortDate(new Date(s.end))}`;
+  }
+  renderScopeTrigger();
 }
 
 async function openConversation(cid) {
