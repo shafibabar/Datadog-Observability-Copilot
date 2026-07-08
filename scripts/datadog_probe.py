@@ -74,7 +74,9 @@ def main() -> int:
     metric = settings.datadog_discovery_metric
 
     steps = [
-        ("1. auth (validate)", "GET", "/api/v1/validate", {}),
+        # /api/v1/validate only accepts an API key, so a PAT gets 403 here — harmless;
+        # the 200s on the query steps below are the real proof the PAT works.
+        ("1. auth (validate — API-key only; 403 with a PAT is expected)", "GET", "/api/v1/validate", {}),
         ("2. discovery — environments", "GET", "/api/v1/query",
          {"from": disc_from, "to": disc_to, "query": f"{metric}{{*}} by {{env}}"}),
         (f"3. discovery — tenants (tag '{tag}')", "GET", "/api/v1/query",

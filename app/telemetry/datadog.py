@@ -34,11 +34,14 @@ def _or_group(key: str, values: list[str]) -> str:
     body = " OR ".join(terms)
     return f"({body})" if len(terms) > 1 else body
 
+# Broadly-present Datadog Agent infra signals — a useful default that actually
+# returns data on most orgs. Override per-org with DATADOG_METRIC_QUERIES (JSON)
+# to point at your golden signals (APM latency/errors/throughput, etc.).
 _DEFAULT_METRIC_QUERIES: dict[str, str] = {
-    "api.latency.p95": "p95:trace.http.request.duration{*}",
-    "api.error_rate": "sum:trace.http.request.errors{*}.as_rate()",
-    "api.requests.rps": "sum:trace.http.request.hits{*}.as_rate()",
     "system.cpu.user": "avg:system.cpu.user{*}",
+    "system.load.1": "avg:system.load.1{*}",
+    "system.mem.used": "avg:system.mem.used{*}",
+    "system.disk.in_use": "avg:system.disk.in_use{*}",
 }
 
 

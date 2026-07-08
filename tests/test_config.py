@@ -16,6 +16,7 @@ _SECRET_VARS = [
     "DATADOG_SITE",
     "DATADOG_CA_BUNDLE",
     "DATADOG_VERIFY_SSL",
+    "DATADOG_METRIC_QUERIES",
     "COPILOT_WORKSPACE_DB",
 ]
 
@@ -109,6 +110,19 @@ def test_datadog_verify_can_be_disabled(monkeypatch):
     s = Settings()
     assert s.datadog_verify_ssl is False
     assert s.datadog_verify is False
+
+
+def test_datadog_metric_queries_default_none_and_parsed(monkeypatch):
+    _clear(monkeypatch)
+    assert Settings().datadog_metric_queries is None      # falls back to adapter defaults
+    monkeypatch.setenv("DATADOG_METRIC_QUERIES", '{"cpu": "avg:system.cpu.user{*}"}')
+    assert Settings().datadog_metric_queries == {"cpu": "avg:system.cpu.user{*}"}
+
+
+def test_datadog_metric_queries_bad_json_is_ignored(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_METRIC_QUERIES", "{not valid json")
+    assert Settings().datadog_metric_queries is None      # tolerant: never crashes startup
 
 
 def test_data_source_is_lowercased(monkeypatch):

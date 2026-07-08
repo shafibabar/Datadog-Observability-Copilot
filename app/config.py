@@ -8,6 +8,7 @@ one-file change.
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -69,6 +70,10 @@ class Settings:
     # DATADOG_VERIFY_SSL=0 to disable verification (insecure — avoid if you can).
     datadog_ca_bundle: str = field(default_factory=lambda: _get("DATADOG_CA_BUNDLE"))
     datadog_verify_ssl: bool = field(default_factory=lambda: _get_bool("DATADOG_VERIFY_SSL", True))
+    # Which metrics the copilot pulls, as a JSON object {logical_name: datadog_query}.
+    # Org-specific — the built-in defaults are broadly-present infra signals; set this
+    # to your golden signals (latency/errors/throughput/…) once you know their names.
+    datadog_metric_queries_raw: str = field(default_factory=lambda: _get("DATADOG_METRIC_QUERIES"))
 
     # App
     data_source: str = field(default_factory=lambda: _get("COPILOT_DATA_SOURCE", "replay").lower())
@@ -89,6 +94,18 @@ class Settings:
         """The value httpx's `verify` wants: a CA-bundle path when one is set,
         otherwise the on/off toggle."""
         return self.datadog_ca_bundle or self.datadog_verify_ssl
+
+    @property
+    def datadog_metric_queries(self) -> dict | None:
+        """Parsed metric map, or None to fall back to the adapter's defaults.
+        Tolerant: bad JSON / non-object / empty → None (never crashes startup)."""
+        if not self.datadog_metric_queries_raw:
+            return None
+        try:
+            data = json.loads(self.datadog_metric_queries_raw)
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) and data else None
 
     def status(self) -> dict[str, object]:
         """Safe, secret-free summary for health checks and the UI banner. Includes
