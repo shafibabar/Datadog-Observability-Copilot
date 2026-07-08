@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -186,7 +186,19 @@ def artifact(cid: str, req: ArtifactRequest) -> JSONResponse:
         return JSONResponse({"error": f"Unknown artifact: {req.key!r}"}, status_code=400)
 
 
+def _asset_version(name: str) -> int:
+    try:
+        return int((_WEB / "static" / name).stat().st_mtime)
+    except OSError:
+        return 0
+
+
 @app.get("/")
-def index() -> FileResponse:
-    # The page is fully static (no server-side templating), so serve it directly.
-    return FileResponse(_INDEX)
+def index() -> HTMLResponse:
+    # The page is static (no templating engine), but we stamp the CSS/JS URLs with
+    # their file mtime so a browser can NEVER render new HTML against a stale cached
+    # stylesheet/script — the exact breakage that mangles the layout after an edit.
+    html = _INDEX.read_text(encoding="utf-8")
+    html = html.replace("/static/styles.css", f"/static/styles.css?v={_asset_version('styles.css')}")
+    html = html.replace("/static/app.js", f"/static/app.js?v={_asset_version('app.js')}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})

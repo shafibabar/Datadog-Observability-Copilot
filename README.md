@@ -7,8 +7,11 @@ health, reconstructs incident timelines, reasons about root causes (distinguishi
 its explanation to your role, and generates operational artifacts — all backed by a
 living, persisted **Investigation Workspace**.
 
-This is **Iteration 0**: a coherent, runnable slice that proves the concept and is
-architected for extension. It runs entirely on your machine.
+A coherent, runnable slice that proves the concept and is architected for extension —
+it runs entirely on your machine. Recent iterations added a keyless **Claude Code CLI**
+backend, a pre-reasoning **relevance & abuse guard**, and **scoped investigations**: you
+pick the **Environment**, **Tenant**, **time window**, and explanation **persona** from a
+single scope menu under the prompt, and the reasoning is confined to that slice.
 
 ---
 
@@ -127,16 +130,25 @@ That's it — you're running the Copilot.
 
 With the app open in your browser:
 
-1. **Ask about the incident.** Type something like
+1. **Set the scope.** Below the prompt is a **Scope** button. Click it and drill into
+   **Environment** and **Tenant** (pick one or more of each), **Duration** (presets like
+   *Last 1 hour*, or a **Custom range** — capped at 7 days, within the last 2 years, no
+   future dates), and **Explain as** (the persona). On the built-in demo these come
+   pre-populated (`production`/`staging`, a few tenants); on live Datadog they're pulled
+   from your org. At least one Environment or Tenant is required before you can send.
+2. **Ask about the incident.** Type something like
    *“Is the system healthy right now? What changed?”* and send it. The Copilot reasons
-   over the telemetry and replies with an evidence-backed narrative.
-2. **See the evidence.** Under any reply, click **“Show me the evidence”** to expand the
-   underlying signals behind the conclusion.
-3. **Switch persona.** Change **“Explain as”** (top right) between *Support Engineer*,
-   *SRE*, *Software Engineer*, *Product Manager*, *Engineering Leadership*. The **same
+   over the telemetry **within your scope** and replies with an evidence-backed narrative.
+3. **See the evidence.** Under any reply, click **“Show me the evidence”** to expand the
+   underlying signals behind the conclusion. Each reply also has a **Copy** button.
+4. **Switch persona anytime.** Reopen **Scope → Explain as** and choose *Support Engineer*,
+   *SRE*, *Software Engineer*, *Product Manager*, or *Engineering Leadership*. The **same
    facts** are re-framed for that audience — no new analysis is run.
-4. **Generate an artifact.** Click **“Generate Incident Summary”** to produce a
+5. **Generate an artifact.** Click **“Incident Summary”** (top right) to produce a
    structured, copy-pasteable incident write-up built from the same investigation.
+6. **Manage conversations.** The left sidebar lists investigations (each gets a subject
+   from its summary); hover the **⋯** menu to rename or delete. Both side panels can be
+   dragged to resize or collapsed with the chevron on their divider.
 
 The canonical built-in scenario is a **deployment-induced latency incident**: a 09:02
 deploy → cache hit-ratio drop → database latency rise → API SLO breach → support
@@ -148,13 +160,25 @@ reliable — but the AI's reasoning over it is genuine, never hard-coded.
 ## Running the tests (optional)
 
 The project is built test-first. To run the full suite (no API key needed — the LLM is
-faked in tests, so this costs nothing and never hits the network):
+faked and Datadog HTTP is mocked, so this costs nothing and never hits the network):
 ```bash
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 pytest -q
 ```
-You should see all tests passing.
+You should see all tests passing (currently **243 passed, 1 skipped**). The suite covers
+unit tests (models, guard, scope, adapters, store, personas, artifacts), functional API
+tests via `TestClient`, and declarative **UI-contract** tests (`tests/test_web_ui.py`)
+that assert the served markup/JS.
+
+**Optional real-browser smoke test.** `tests/test_smoke_playwright.py` drives an actual
+browser through the scope menu; it **skips** unless Playwright and a browser are installed
+(so it never breaks the offline run). To enable it on a networked machine:
+```bash
+pip install playwright && playwright install chromium
+pytest tests/test_smoke_playwright.py
+```
+(Playwright is intentionally not in `requirements-dev.txt` — it's an opt-in extra.)
 
 ---
 
@@ -228,23 +252,48 @@ PAT is also set, the PAT takes precedence.
 
 > Set `DATADOG_SITE` to your region (`datadoghq.com`, `datadoghq.eu`, `us3.datadoghq.com`, …).
 
+### Scope dropdowns (Environment / Tenant)
+The scope menu populates its **Environment** and **Tenant** lists from your org. `env` is
+Datadog's standard environment tag; **"tenant" is not a native Datadog concept**, so tell
+the app which tag key represents it (your org may call it `tenant`, `customer`, `account`, …):
+```
+DATADOG_TENANT_TAG=tenant
+DATADOG_DISCOVERY_METRIC=system.cpu.user
+```
+`DATADOG_DISCOVERY_METRIC` is a widely-emitted metric the app queries **only** to list the
+distinct env/tenant tag values for the dropdowns — it must be a metric that actually carries
+those tags in your org. If the dropdowns come up empty, point it at one that does.
+
+> **Not yet validated live.** The live env/tenant discovery and scoped queries are currently
+> tested only against mocked Datadog responses; the exact query/tag shapes should be confirmed
+> against a real org (tracked in `docs/context/OPEN-QUESTIONS.md`).
+
+### Confirm your configuration
+Not sure whether the app is actually seeing your settings? Run the safe diagnostic (it
+prints which keys are set — never their values — and what the app resolves):
+```
+python scripts/check_env.py
+```
+
 ---
 
 ## How it's organized
 
 ```
 app/
-  config.py            Settings + secret loading (.env). Secrets never touch git or the DB.
-  main.py              FastAPI app: serves the UI, /api/conversations, /api/status.
-  copilot.py           Copilot: joins data + reasoning + workspace across conversations.
+  config.py            Settings + secret loading (.env), incl. .env diagnostics. Secrets never touch git or the DB.
+  main.py              FastAPI app: serves the UI (cache-busted), /api/conversations, /api/scopes, /api/status.
+  copilot.py           Copilot: joins data + reasoning + workspace across conversations; per-conversation scope; guard.
+  guard.py             Pre-reasoning relevance & abuse gate (blocks off-topic / injection before any spend).
   personas.py          Registry of the 5 personas (config only) + deterministic rendering.
   artifacts.py         Registry of operational artifacts (Incident Summary).
-  telemetry/           DataSource interface + ReplayAdapter (demo) and LiveDatadogAdapter.
+  telemetry/           DataSource interface + ReplayAdapter (demo) and LiveDatadogAdapter; Scope model + list_scopes discovery.
   reasoning/           Reasoning engine + the LLM seam: Claude via the CLI (no key) or the API SDK.
-  workspace/           The Investigation Workspace: SQLite append-with-history + sections.
-  web/                 The browser UI (static HTML/CSS/JS).
+  workspace/           The Investigation Workspace: SQLite append-with-history + sections (+ per-conversation scope, delete).
+  web/                 The browser UI (static HTML/CSS/JS): Claude-style theme + the scope menu.
 metrics/               The build-metrics subsystem: collector (Stop hook) + local dashboard.
-tests/                 The full test suite.
+scripts/               check_env.py — safe .env / config diagnostic (no secret values printed).
+tests/                 The full test suite (unit + functional + UI-contract; optional Playwright smoke).
 docs/context/          Project memory: PROJECT, STATE, ROADMAP, DECISIONS, BUILD-LOG, etc.
 ```
 
@@ -273,3 +322,15 @@ they are the authoritative, version-controlled source of truth for where things 
   `http://127.0.0.1:8001`.
 - **Your prompt doesn't show `(.venv)`** — re-run `source .venv/bin/activate` from the
   project folder.
+- **The UI looks broken / mangled after an update** — your browser is likely showing a
+  stale stylesheet. Hard-refresh: **Ctrl + Shift + R** (Windows/Linux) or
+  **Cmd + Shift + R** (Mac). The app already versions its CSS/JS to prevent this, but a
+  hard refresh clears anything cached from before.
+- **The scope dropdowns are empty / it still says `replay` with Datadog set** — the app
+  isn't resolving your Datadog config. Run `python scripts/check_env.py` to see exactly
+  what's set and what's missing (it never prints secret values). Common causes: you edited
+  `.env.example` instead of `.env`, `COPILOT_DATA_SOURCE` isn't `datadog`, the credential
+  is blank, or `DATADOG_DISCOVERY_METRIC` doesn't carry your env/tenant tags. Restart after
+  editing `.env`.
+- **The Copilot declines an off-topic question** — that's the relevance guard. Ask about
+  system health, telemetry, deploys, errors, or an incident and it will investigate.
