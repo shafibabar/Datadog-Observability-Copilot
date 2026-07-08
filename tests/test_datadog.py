@@ -30,6 +30,19 @@ def test_is_a_datasource():
     assert issubclass(LiveDatadogAdapter, DataSource)
 
 
+def test_accepts_verify_option_for_corporate_ca():
+    # verify may be a CA-bundle path or bool (TLS-inspection proxies); construction
+    # and queries must work regardless (the injected transport bypasses real TLS).
+    a = LiveDatadogAdapter(
+        access_token="t", verify="/etc/ssl/corp.pem",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"series": []})),
+        metric_queries={"m": "avg:m{*}"},
+    )
+    s = a.get_metric("m", start=datetime(2024, 1, 15, tzinfo=timezone.utc),
+                     end=datetime(2024, 1, 15, 1, tzinfo=timezone.utc))
+    assert s.points == []
+
+
 def test_source_type():
     a = _adapter(lambda req: httpx.Response(200, json={}))
     assert a.source_type == "datadog"

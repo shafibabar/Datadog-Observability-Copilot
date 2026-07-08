@@ -72,6 +72,7 @@ class LiveDatadogAdapter(DataSource):
         metric_queries: dict[str, str] | None = None,
         tenant_tag: str = "tenant",
         discovery_metric: str = "system.cpu.user",
+        verify: bool | str = True,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 10.0,
     ) -> None:
@@ -84,9 +85,12 @@ class LiveDatadogAdapter(DataSource):
             headers = {"Authorization": f"Bearer {access_token}"}
         else:
             headers = {"DD-API-KEY": api_key, "DD-APPLICATION-KEY": app_key}
+        # `verify` accepts a CA-bundle path (corporate TLS-inspection proxies) or a
+        # bool. Ignored when a custom transport is injected (i.e. in tests).
         self._client = httpx.Client(
             base_url=f"https://api.{site}",
             headers=headers,
+            verify=verify,
             transport=transport,
             timeout=timeout,
         )

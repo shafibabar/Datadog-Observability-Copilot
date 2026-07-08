@@ -64,6 +64,11 @@ class Settings:
     # for the scope dropdowns. Org-specific — must be a metric that carries the tags.
     datadog_discovery_metric: str = field(
         default_factory=lambda: _get("DATADOG_DISCOVERY_METRIC", "system.cpu.user"))
+    # TLS: on corporate networks that intercept HTTPS with a private root CA, point
+    # this at that CA bundle (PEM) so requests verify. Last resort: set
+    # DATADOG_VERIFY_SSL=0 to disable verification (insecure — avoid if you can).
+    datadog_ca_bundle: str = field(default_factory=lambda: _get("DATADOG_CA_BUNDLE"))
+    datadog_verify_ssl: bool = field(default_factory=lambda: _get_bool("DATADOG_VERIFY_SSL", True))
 
     # App
     data_source: str = field(default_factory=lambda: _get("COPILOT_DATA_SOURCE", "replay").lower())
@@ -78,6 +83,12 @@ class Settings:
     def has_datadog(self) -> bool:
         # A PAT authenticates on its own; otherwise the legacy pair is required.
         return bool(self.datadog_access_token or (self.datadog_api_key and self.datadog_app_key))
+
+    @property
+    def datadog_verify(self) -> bool | str:
+        """The value httpx's `verify` wants: a CA-bundle path when one is set,
+        otherwise the on/off toggle."""
+        return self.datadog_ca_bundle or self.datadog_verify_ssl
 
     def status(self) -> dict[str, object]:
         """Safe, secret-free summary for health checks and the UI banner. Includes

@@ -272,6 +272,8 @@ def _build_source(settings) -> DataSource:
             access_token=settings.datadog_access_token,
             site=settings.datadog_site,
             tenant_tag=settings.datadog_tenant_tag,
+            discovery_metric=settings.datadog_discovery_metric,
+            verify=settings.datadog_verify,
         )
     from app.telemetry.replay import ReplayAdapter
 

@@ -14,6 +14,8 @@ _SECRET_VARS = [
     "COPILOT_GUARD_MODE",
     "COPILOT_GUARD_MAX_CHARS",
     "DATADOG_SITE",
+    "DATADOG_CA_BUNDLE",
+    "DATADOG_VERIFY_SSL",
     "COPILOT_WORKSPACE_DB",
 ]
 
@@ -85,6 +87,28 @@ def test_status_reports_dotenv_diagnostics_without_secrets(monkeypatch):
     assert "dotenv_loaded" in s                    # whether a file was found
     # diagnostics must stay secret-free
     assert "api_key" not in s and "app_key" not in s and "access_token" not in s
+
+
+def test_datadog_tls_defaults_to_verifying(monkeypatch):
+    _clear(monkeypatch)
+    s = Settings()
+    assert s.datadog_ca_bundle == ""
+    assert s.datadog_verify_ssl is True
+    assert s.datadog_verify is True          # httpx verify: on by default
+
+
+def test_datadog_ca_bundle_becomes_the_verify_path(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_CA_BUNDLE", "/etc/ssl/corp-root.pem")
+    assert Settings().datadog_verify == "/etc/ssl/corp-root.pem"
+
+
+def test_datadog_verify_can_be_disabled(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_VERIFY_SSL", "0")
+    s = Settings()
+    assert s.datadog_verify_ssl is False
+    assert s.datadog_verify is False
 
 
 def test_data_source_is_lowercased(monkeypatch):

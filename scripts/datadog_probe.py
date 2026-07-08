@@ -63,7 +63,10 @@ def main() -> int:
 
     shown_headers, real_headers = _headers()
     base = f"https://api.{settings.datadog_site}"
-    client = httpx.Client(base_url=base, headers=real_headers, timeout=15.0)
+    verify = settings.datadog_verify
+    print(f"tls verify         : {verify!r}"
+          + ("  (CA bundle)" if isinstance(verify, str) else ""))
+    client = httpx.Client(base_url=base, headers=real_headers, timeout=15.0, verify=verify)
 
     now = datetime.now(timezone.utc)
     disc_from, disc_to = _epoch(now - timedelta(hours=4)), _epoch(now)

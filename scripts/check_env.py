@@ -66,6 +66,8 @@ def main() -> int:
     print(f"  llm_backend          : {s.llm_backend}")
     print(f"  datadog_tenant_tag   : {s.datadog_tenant_tag}")
     print(f"  datadog_discovery    : {s.datadog_discovery_metric}")
+    print(f"  datadog_tls_verify   : {s.datadog_verify!r}"
+          + ("  (CA bundle path)" if isinstance(s.datadog_verify, str) else ""))
     print("=" * 64)
 
     problems = []
