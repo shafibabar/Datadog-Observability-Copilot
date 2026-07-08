@@ -45,36 +45,25 @@
             <div class="control" id="ctl-env"></div>
             <div class="control" id="ctl-tenant"></div>
             <div class="control" id="ctl-duration">
-              <span class="ctl-label">Duration</span>
-              <div class="pill-wrap">
-                <select id="duration-select" class="pill-select">
-                  <option value="1h" selected>Last 1 hour</option>
-                  <option value="2h">Last 2 hours</option>
-                  <option value="4h">Last 4 hours</option>
-                  <option value="8h">Last 8 hours</option>
-                  <option value="1d">Last 1 day</option>
-                  <option value="2d">Last 2 days</option>
-                  <option value="1w">Last 1 week</option>
-                  <option value="custom">Custom range…</option>
-                </select>
-              </div>
-              <div id="custom-range" class="custom-range" hidden>
-                <label>From <input type="datetime-local" id="range-start" /></label>
-                <label>To <input type="datetime-local" id="range-end" /></label>
-                <span class="range-note">Max 7 days.</span>
-              </div>
+              <select id="duration-select" class="pill-select" aria-label="Duration">
+                <option value="1h" selected>Last 1 hour</option>
+                <option value="2h">Last 2 hours</option>
+                <option value="4h">Last 4 hours</option>
+                <option value="8h">Last 8 hours</option>
+                <option value="1d">Last 1 day</option>
+                <option value="2d">Last 2 days</option>
+                <option value="1w">Last 1 week</option>
+                <option value="custom">Custom range…</option>
+              </select>
             </div>
             <div class="control" id="ctl-persona">
-              <span class="ctl-label">Explain as</span>
-              <div class="pill-wrap">
-                <select id="persona" class="pill-select">
-                  <option value="support">Support Engineer</option>
-                  <option value="sre" selected>Site Reliability Engineer</option>
-                  <option value="swe">Software Engineer</option>
-                  <option value="pm">Product Manager</option>
-                  <option value="leadership">Engineering Leadership</option>
-                </select>
-              </div>
+              <select id="persona" class="pill-select" aria-label="Explain as">
+                <option value="support">Support Engineer</option>
+                <option value="sre" selected>Site Reliability Engineer</option>
+                <option value="swe">Software Engineer</option>
+                <option value="pm">Product Manager</option>
+                <option value="leadership">Engineering Leadership</option>
+              </select>
             </div>
           </div>
         </div>
@@ -99,6 +88,21 @@
         <div class="ws-empty">Ask a question to start building the investigation.</div>
       </div>
     </aside>
+
+    <!-- Custom time range (opened from the Duration dropdown) -->
+    <div id="range-modal" class="modal" hidden>
+      <div class="modal-card" role="dialog" aria-label="Custom time range">
+        <div class="modal-title">Custom time range</div>
+        <label class="modal-field">From<input type="datetime-local" id="range-start" /></label>
+        <label class="modal-field">To<input type="datetime-local" id="range-end" /></label>
+        <div class="modal-note">Up to 7 days · within the last 2 years · not in the future.</div>
+        <div id="range-error" class="modal-error"></div>
+        <div class="modal-actions">
+          <button type="button" id="range-cancel" class="btn-ghost">Cancel</button>
+          <button type="button" id="range-apply" class="btn-primary">Apply</button>
+        </div>
+      </div>
+    </div>
 
   </div>
   <script src="/static/app.js"></script>

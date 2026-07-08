@@ -16,10 +16,14 @@ const genSummaryBtn = $("gen-summary");
 const wsBody = $("ws-body");
 const wsSnapshot = $("ws-snapshot");
 const durationSel = $("duration-select");
-const customRange = $("custom-range");
+const rangeModal = $("range-modal");
 const rangeStart = $("range-start");
 const rangeEnd = $("range-end");
+const rangeApply = $("range-apply");
+const rangeCancel = $("range-cancel");
+const rangeError = $("range-error");
 const scopeHint = $("scope-hint");
+let prevDuration = "1h";   // last non-cancelled duration, to revert if custom is cancelled
 
 // ---------- state ----------
 const state = { configured: false, currentId: null, conversations: [], busy: false };
@@ -92,11 +96,10 @@ function fuzzy(text, q) {
 }
 
 // ---------- multi-select with type-to-filter ----------
-function createMultiSelect(mount, { label, placeholder, onChange }) {
+const SEARCH_THRESHOLD = 8;  // only show the filter box once a list gets long
+
+function createMultiSelect(mount, { label, onChange }) {
   mount.innerHTML = "";
-  const lab = document.createElement("label");
-  lab.className = "ctl-label";
-  lab.textContent = label;
   const box = document.createElement("div");
   box.className = "ms";
   const btn = document.createElement("button");
@@ -107,21 +110,29 @@ function createMultiSelect(mount, { label, placeholder, onChange }) {
   panel.hidden = true;
   const search = document.createElement("input");
   search.className = "ms-search";
-  search.placeholder = "Type to filter…";
+  search.placeholder = "Filter…";
+  search.hidden = true;
   const list = document.createElement("div");
   list.className = "ms-list";
   panel.append(search, list);
   box.append(btn, panel);
-  mount.append(lab, box);
+  mount.append(box);
 
   let options = [];
   const selected = new Set();
 
   function renderBtn() {
     const n = selected.size;
-    btn.textContent = n === 0 ? (placeholder || "Any")
-      : n === 1 ? [...selected][0] : `${n} selected`;
+    let text = label;
+    if (n === 1) text = `${label}: ${[...selected][0]}`;
+    else if (n > 1) text = `${label} · ${n}`;
+    btn.textContent = text;
+    const caret = document.createElement("span");
+    caret.className = "ms-caret";
+    caret.textContent = "⌄";
+    btn.appendChild(caret);
     btn.classList.toggle("empty", n === 0);
+    btn.classList.toggle("active", n > 0);
   }
   function renderList() {
     const q = search.value.trim().toLowerCase();
@@ -147,7 +158,12 @@ function createMultiSelect(mount, { label, placeholder, onChange }) {
   }
   btn.onclick = () => {
     panel.hidden = !panel.hidden;
-    if (!panel.hidden) { search.value = ""; renderList(); search.focus(); }
+    if (!panel.hidden) {
+      search.value = "";
+      search.hidden = options.length <= SEARCH_THRESHOLD;
+      renderList();
+      if (!search.hidden) search.focus();
+    }
   };
   search.oninput = renderList;
   document.addEventListener("click", (e) => { if (!box.contains(e.target)) panel.hidden = true; });
@@ -230,16 +246,63 @@ function toLocalInput(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function syncCustomBounds() {
+function setRangeBounds() {
+  // No future dates; nothing older than 2 years (computed from the system clock).
   const now = new Date();
-  rangeEnd.max = toLocalInput(now);
+  const twoYearsAgo = new Date(now);
+  twoYearsAgo.setFullYear(now.getFullYear() - 2);
+  rangeStart.min = toLocalInput(twoYearsAgo);
   rangeStart.max = toLocalInput(now);
-  if (rangeStart.value) {
-    const s = new Date(rangeStart.value);
-    const cap = new Date(Math.min(s.getTime() + 7 * DAY_MS, now.getTime()));
-    rangeEnd.max = toLocalInput(cap);
-    rangeEnd.min = toLocalInput(s);
-  }
+  const s = rangeStart.value ? new Date(rangeStart.value) : null;
+  rangeEnd.min = toLocalInput(s || twoYearsAgo);
+  const cap = s ? new Date(Math.min(s.getTime() + 7 * DAY_MS, now.getTime())) : now;
+  rangeEnd.max = toLocalInput(cap);
+}
+
+function shortDate(d) {
+  return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function customRangeError(start, end) {
+  const now = new Date();
+  const twoYearsAgo = new Date(now);
+  twoYearsAgo.setFullYear(now.getFullYear() - 2);
+  if (!start || !end || isNaN(start) || isNaN(end)) return "Choose both a start and an end.";
+  if (end <= start) return "The end must be after the start.";
+  if (end - start > 7 * DAY_MS) return "The range can’t exceed 7 days.";
+  if (end > now) return "The end can’t be in the future.";
+  if (start < twoYearsAgo) return "The start can’t be more than 2 years ago.";
+  return "";
+}
+
+function openRangeModal() {
+  const now = new Date();
+  if (!rangeEnd.value) rangeEnd.value = toLocalInput(now);
+  if (!rangeStart.value) rangeStart.value = toLocalInput(new Date(now.getTime() - DAY_MS));
+  setRangeBounds();
+  rangeError.textContent = "";
+  rangeModal.hidden = false;
+}
+
+function closeRangeModal() { rangeModal.hidden = true; }
+
+function applyRange() {
+  setRangeBounds();
+  const { start, end } = currentWindow();
+  const err = customRangeError(start, end);
+  if (err) { rangeError.textContent = err; return; }
+  const opt = durationSel.querySelector('option[value="custom"]');
+  if (opt) opt.textContent = `${shortDate(start)} – ${shortDate(end)}`;
+  prevDuration = "custom";
+  closeRangeModal();
+  refreshComposer();
+}
+
+function cancelRange() {
+  // revert the dropdown to whatever was selected before opening the dialog
+  durationSel.value = prevDuration;
+  closeRangeModal();
+  refreshComposer();
 }
 
 async function loadScopes(selectedEnvs) {
@@ -266,12 +329,20 @@ function setupControls() {
   });
 
   durationSel.addEventListener("change", () => {
-    customRange.hidden = durationSel.value !== "custom";
-    if (durationSel.value === "custom") syncCustomBounds();
-    refreshComposer();
+    if (durationSel.value === "custom") {
+      openRangeModal();               // custom → pop up the From/To pickers
+    } else {
+      prevDuration = durationSel.value;
+      const opt = durationSel.querySelector('option[value="custom"]');
+      if (opt) opt.textContent = "Custom range…";   // reset any prior custom label
+      refreshComposer();
+    }
   });
-  rangeStart.addEventListener("change", () => { syncCustomBounds(); refreshComposer(); });
-  rangeEnd.addEventListener("change", refreshComposer);
+  rangeStart.addEventListener("change", () => { setRangeBounds(); rangeError.textContent = ""; });
+  rangeEnd.addEventListener("change", () => { rangeError.textContent = ""; });
+  rangeApply.addEventListener("click", applyRange);
+  rangeCancel.addEventListener("click", cancelRange);
+  rangeModal.addEventListener("click", (e) => { if (e.target === rangeModal) cancelRange(); });
   personaSel.addEventListener("change", switchPersona);
 }
 
