@@ -296,3 +296,15 @@ def test_collect_appends_one_record_and_dedupes(repo, tmp_path):
     again = C.collect(str(transcript), repo, str(jsonl), str(state), session_id="s")
     assert again is None
     assert len(jsonl.read_text().strip().splitlines()) == 1
+
+
+def test_build_record_flags_missing_tokens():
+    zero = {"mutated": [], "prompt_ts": "2026-07-08T00:00:00Z",
+            "response_ts": "2026-07-08T00:00:01Z", "summary": "interrupted",
+            "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0, "total": 0}}
+    assert C.build_record(zero, 1, "s", None)["tokens_missing"] is True
+
+    real = {"mutated": [], "prompt_ts": "2026-07-08T00:00:00Z",
+            "response_ts": "2026-07-08T00:00:02Z", "summary": "answered",
+            "tokens": {"input": 10, "output": 100, "cache_read": 0, "cache_creation": 0, "total": 110}}
+    assert C.build_record(real, 2, "s", None)["tokens_missing"] is False

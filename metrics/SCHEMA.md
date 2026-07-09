@@ -60,6 +60,7 @@ record carries `schema_version` so the dashboard stays robust as fields evolve.
 | `intent` | enum | `planning_qa` (discussion/reads) or `implementation` (file mutations). |
 | `summary` | str | Short label from the prompt text. |
 | `tokens` | object | `{input, output, cache_read, cache_creation, total}` — real, from transcript usage. |
+| `tokens_missing` | bool | `true` when no usage was captured for the cycle (e.g. an interrupted turn), so a zero-token record isn't read as a genuinely free turn. Analytics also derives it for older records that predate the field (total == 0). |
 | `source` | enum | `reconstructed` (historical) or `live` (auto-collected). |
 | `implementation` | object\|absent | Present only when `intent == implementation` (below). |
 

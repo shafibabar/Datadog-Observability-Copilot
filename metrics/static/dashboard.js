@@ -154,7 +154,10 @@ function renderTimeline(data) {
     ]
   });
 
-  const rows = data.prompts || [];
+  // "Highlights" hides purely procedural prompts from the log (a curated VIEW —
+  // the underlying data and totals are unchanged).
+  const hl = document.getElementById("tl_highlights");
+  const rows = (data.prompts || []).filter(r => !(hl && hl.checked) || !r.procedural);
   const body = rows.map(r => {
     const dt = r.prompt_ts ? new Date(r.prompt_ts) : null;
     const when = (dt && !isNaN(dt)) ? dt.toLocaleString() : (r.date || "unknown");
@@ -165,7 +168,7 @@ function renderTimeline(data) {
       <td>${when}</td>
       <td><span class="badge ${impl ? "impl" : "plan"}">${impl ? "impl" : "plan"}</span></td>
       <td class="ell" title="${escapeHtml(r.summary || "")}">${escapeHtml(r.summary || "")}</td>
-      <td class="num">${fmtN(r.total)}</td>
+      <td class="num">${r.tokens_missing ? '<span title="no usage recorded for this cycle (e.g. an interrupted turn)">n/a</span>' : fmtN(r.total)}</td>
       <td class="num">${tests}</td>
       <td class="num pos">${r.lines_added ? "+" + r.lines_added : ""}</td>
       <td class="num neg">${r.lines_removed ? "−" + r.lines_removed : ""}</td>
@@ -204,6 +207,7 @@ function renderActive() {
 }
 
 document.querySelectorAll(".tabradio").forEach(r => r.addEventListener("change", renderActive));
+document.getElementById("tl_highlights")?.addEventListener("change", renderActive);
 
 async function refresh() {
   try {

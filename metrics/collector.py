@@ -260,6 +260,13 @@ def already_recorded(records, prompt_ts) -> bool:
     return any(r.get("prompt_ts") == prompt_ts for r in records)
 
 
+def _tokens_empty(tk: dict) -> bool:
+    """True when no usage was captured for this cycle (e.g. an interrupted turn) —
+    so a zero-token record is marked, not read as a genuinely free turn."""
+    return sum(int(tk.get(k, 0) or 0)
+               for k in ("input", "output", "cache_read", "cache_creation")) == 0
+
+
 def build_record(cyc: dict, index: int, session_id: str, git_stats: dict | None) -> dict:
     intent = classify_intent(cyc["mutated"])
     rec = {
@@ -273,6 +280,7 @@ def build_record(cyc: dict, index: int, session_id: str, git_stats: dict | None)
         "intent": intent,
         "summary": cyc["summary"],
         "tokens": cyc["tokens"],
+        "tokens_missing": _tokens_empty(cyc["tokens"]),
         "source": "live",
     }
     if intent == "implementation":

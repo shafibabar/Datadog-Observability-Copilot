@@ -91,6 +91,13 @@ def normalize(rec: dict) -> dict:
         "duration_sec": _int(rec.get("duration_sec")),
         "prompt_ts": rec.get("prompt_ts"),
         "tokens": tokens,
+        # Honor the collector's explicit flag; also derive it for older records
+        # (written before the flag existed) so a zero-token cycle is always marked.
+        "tokens_missing": bool(rec.get("tokens_missing")) or tokens["total"] == 0,
+        # Curation flag: a purely procedural prompt (login check, "what next?", pasted
+        # terminal noise) that the dashboard can hide in its "Highlights" view. Never
+        # deletes or alters the record — only tags it.
+        "procedural": bool(rec.get("procedural")),
         "implementation": impl,
     }
 
@@ -116,6 +123,7 @@ def aggregate(records: list[dict]) -> dict:
         "total_lines_added": 0, "total_lines_removed": 0,
         "total_files_created": 0, "total_files_modified": 0, "total_files_deleted": 0,
         "total_dependencies_installed": 0, "estimated_cost_usd": 0.0,
+        "tokens_missing_count": 0, "procedural_count": 0,
         "intent_split": {"planning_qa": 0, "implementation": 0},
         "kind_split": {},
     }
@@ -137,6 +145,8 @@ def aggregate(records: list[dict]) -> dict:
             "cache_read": tk["cache_read"], "cache_creation": tk["cache_creation"],
             "total": tk["total"], "cumulative_output": cum_output,
             "cumulative_total": cum_total, "cost_usd": cost,
+            "tokens_missing": r["tokens_missing"],
+            "procedural": r["procedural"],
             "tests_passing": impl["tests_passing"] if impl else None,
             "tests_added": impl["tests_added"] if impl else 0,
             "lines_added": impl["lines_added"] if impl else 0,
@@ -153,6 +163,10 @@ def aggregate(records: list[dict]) -> dict:
         summary["total_output_tokens"] += tk["output"]
         summary["total_tokens"] += tk["total"]
         summary["estimated_cost_usd"] = round(summary["estimated_cost_usd"] + cost, 4)
+        if r["tokens_missing"]:
+            summary["tokens_missing_count"] += 1
+        if r["procedural"]:
+            summary["procedural_count"] += 1
         intent_split[r["intent"]] = intent_split.get(r["intent"], 0) + 1
         kind_split[r["kind"]] = kind_split.get(r["kind"], 0) + 1
 

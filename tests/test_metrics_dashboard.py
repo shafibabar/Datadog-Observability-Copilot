@@ -311,3 +311,49 @@ def test_tab_switching_is_pure_css_no_js_required():
     assert "#r-overview:checked~#tab-overview" in norm
     assert "#r-timeline:checked~#tab-timeline" in norm
     assert ".tabradio" in css                               # the radios themselves are hidden
+
+
+def test_normalize_derives_tokens_missing():
+    # older records have no explicit flag -> derive it from zero total
+    z = A.normalize({"index": 1, "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0, "total": 0}})
+    assert z["tokens_missing"] is True
+    ok = A.normalize({"index": 2, "tokens": {"output": 100, "total": 100}})
+    assert ok["tokens_missing"] is False
+    # explicit flag is honored even if (hypothetically) totals disagree
+    flagged = A.normalize({"index": 3, "tokens_missing": True, "tokens": {"output": 5, "total": 5}})
+    assert flagged["tokens_missing"] is True
+
+
+def test_aggregate_counts_and_surfaces_tokens_missing():
+    recs = [
+        {"index": 1, "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0, "total": 0}},
+        {"index": 2, "tokens": {"input": 5, "output": 50, "cache_read": 0, "cache_creation": 0, "total": 55}},
+    ]
+    agg = A.aggregate(recs)
+    assert agg["summary"]["tokens_missing_count"] == 1
+    by_index = {p["index"]: p for p in agg["prompts"]}
+    assert by_index[1]["tokens_missing"] is True
+    assert by_index[2]["tokens_missing"] is False
+
+
+def test_procedural_flag_is_surfaced_and_counted():
+    recs = [
+        {"index": 1, "procedural": True, "tokens": {"output": 10, "total": 10}},
+        {"index": 2, "tokens": {"output": 20, "total": 20}},          # not procedural
+    ]
+    agg = A.aggregate(recs)
+    assert agg["summary"]["procedural_count"] == 1
+    by_index = {p["index"]: p for p in agg["prompts"]}
+    assert by_index[1]["procedural"] is True
+    assert by_index[2]["procedural"] is False   # default when absent
+
+
+def test_procedural_does_not_alter_totals():
+    # curation is a view concern only — totals still count every record
+    recs = [
+        {"index": 1, "procedural": True, "tokens": {"output": 100, "total": 100}},
+        {"index": 2, "tokens": {"output": 100, "total": 100}},
+    ]
+    s = A.aggregate(recs)["summary"]
+    assert s["total_prompts"] == 2
+    assert s["total_tokens"] == 200          # procedural rows still counted in totals
