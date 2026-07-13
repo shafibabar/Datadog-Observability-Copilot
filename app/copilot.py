@@ -228,6 +228,7 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     """Build the Copilot from runtime settings, or return None when no LLM
     backend is available (no API key and no `claude` CLI) so the app degrades
     gracefully without crashing. `cli_available` is injectable for tests."""
+    from app.guard_classifier import classify_relevance
     from app.monitors.index import build_monitors_index
     from app.reasoning.llm import cli_available as _detect_cli
 
@@ -257,12 +258,17 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
     engine = ReasoningEngine(source, llm, monitors_index=monitors_index)
     store = WorkspaceStore(settings.workspace_db)
+
+    # Build the classifier for Stage 2 guard (semantic relevance checking)
+    classifier = lambda msg: classify_relevance(msg, llm)
+
     return Copilot(
         source, engine, store,
         incident_id=f"{source.source_type}-session",
         guard_enabled=settings.guard_enabled,
         guard_mode=settings.guard_mode,
         guard_max_chars=settings.guard_max_chars,
+        classifier=classifier,
     )
 
 

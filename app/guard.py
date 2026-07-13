@@ -56,6 +56,7 @@ _INJECTION_PATTERNS = [
 # messages fall through to Stage 2 rather than being auto-allowed.
 _ONTOPIC_PHRASES = ("root cause", "error rate", "hit ratio", "response time")
 _ONTOPIC_WORDS = (
+    # Performance & behavior
     "latency", "p50", "p95", "p99", "deploy", "deployment", "rollback", "slow",
     "slowness", "error", "errors", "5xx", "4xx", "timeout", "healthy", "health",
     "unhealthy", "cpu", "memory", "disk", "throughput", "rps", "qps", "traffic",
@@ -63,10 +64,27 @@ _ONTOPIC_WORDS = (
     "metric", "metrics", "dashboard", "spike", "spiking", "saturation", "cache",
     "database", "checkout", "api", "endpoint", "service", "alert", "anomaly",
     "regression", "degraded", "crash", "restart", "memory leak", "throttl",
-    # Monitor & configuration keywords
+    # Monitor & configuration
     "monitor", "monitors", "alerting", "alert", "alerts", "notification", "notifications",
     "channel", "slack", "threshold", "trigger", "alarm", "critical", "warning",
     "terraform", "configuration", "config", "alert rule", "monitoring",
+    # System-specific (EC services)
+    "message processing", "debezium", "quota manager", "config curator", "policy evaluator",
+    "indexer", "lookback", "surveillance", "audit", "review service", "gateway",
+    # Queue & processing concepts
+    "queue", "consumer", "lag", "throughput", "processing", "batch", "backlog",
+    "failure", "retry", "timeout", "dlt", "dead letter", "backpressure",
+    "rate", "count", "frequency", "volume", "processed", "pending",
+    # Deployment & infrastructure
+    "pod", "container", "kubernetes", "deployment", "replica", "version",
+    # Environment & scope
+    "prod", "production", "staging", "dev", "environment", "tenant",
+    # Performance issues
+    "delay", "slow", "bottleneck", "contention", "lock", "deadlock",
+    "exhausted", "saturated", "peaked", "elevated", "baseline",
+    # System health
+    "health", "status", "available", "unavailable", "failed", "failure",
+    "broken", "issue", "problem", "bug", "fire", "emergency",
 )
 _ONTOPIC_WORD_RE = re.compile(
     r"\b(" + "|".join(re.escape(w) for w in _ONTOPIC_WORDS) + r")\b"
