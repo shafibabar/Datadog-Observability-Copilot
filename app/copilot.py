@@ -228,6 +228,7 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     """Build the Copilot from runtime settings, or return None when no LLM
     backend is available (no API key and no `claude` CLI) so the app degrades
     gracefully without crashing. `cli_available` is injectable for tests."""
+    from app.monitors.index import build_monitors_index
     from app.reasoning.llm import cli_available as _detect_cli
 
     if cli_available is None:
@@ -251,7 +252,10 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
         llm = ClaudeCliClient(model_fast=settings.model_fast, model_deep=settings.model_deep)
 
-    engine = ReasoningEngine(source, llm)
+    # Build monitors knowledge base for enriched context
+    monitors_index = build_monitors_index()
+
+    engine = ReasoningEngine(source, llm, monitors_index=monitors_index)
     store = WorkspaceStore(settings.workspace_db)
     return Copilot(
         source, engine, store,

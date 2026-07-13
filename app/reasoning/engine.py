@@ -8,6 +8,9 @@ The engine is LLM-agnostic (depends only on the LLMClient seam).
 """
 from __future__ import annotations
 
+import re
+
+from app.monitors.index import MonitorsIndex, get_monitors_context
 from app.reasoning.evidence import build_evidence_catalog
 from app.reasoning.llm import LLMClient, extract_json
 from app.reasoning.models import (
@@ -43,6 +46,17 @@ _SYSTEM = (
     '"unknowns": [{"claim": str, "confidence": "low|medium|high", "evidence": [id, ...]}]}'
 )
 
+_MONITOR_KEYWORDS = re.compile(
+    r"\b(monitor|alert|dashboard|notification|threshold|alarm|critical|warning|"
+    r"terraform|configuration|config|channel)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_monitor_question(text: str) -> bool:
+    """Check if a question is about monitors or alerting configuration."""
+    return _MONITOR_KEYWORDS.search(text) is not None
+
 
 def _format_history(history: list[tuple[str, str]] | None, limit: int) -> str:
     """Render the most recent turns as a compact transcript. Bounded by `limit`
@@ -54,21 +68,38 @@ def _format_history(history: list[tuple[str, str]] | None, limit: int) -> str:
     return f"CONVERSATION SO FAR (most recent last):\n{lines}\n\n"
 
 
-def _build_user_prompt(context: str, question: str | None, transcript: str) -> str:
+def _build_user_prompt(
+    context: str,
+    question: str | None,
+    transcript: str,
+    monitors_context: str = "",
+) -> str:
     ask = question or "Give an overall investigation of the current system state."
-    return (
-        f"EVIDENCE CATALOG (cite these ids):\n{context}\n\n"
-        f"{transcript}"
-        f"QUESTION: {ask}\n\n"
-        "Return the JSON investigation now."
-    )
+    parts = [
+        f"EVIDENCE CATALOG (cite these ids):\n{context}\n",
+    ]
+    if monitors_context:
+        parts.append(f"\n{monitors_context}\n")
+    parts.extend([
+        transcript,
+        f"QUESTION: {ask}\n\n",
+        "Return the JSON investigation now.",
+    ])
+    return "".join(parts)
 
 
 class ReasoningEngine:
-    def __init__(self, source: DataSource, llm: LLMClient, history_limit: int = 6) -> None:
+    def __init__(
+        self,
+        source: DataSource,
+        llm: LLMClient,
+        history_limit: int = 6,
+        monitors_index: MonitorsIndex | None = None,
+    ) -> None:
         self._source = source
         self._llm = llm
         self._history_limit = history_limit
+        self._monitors_index = monitors_index
 
     def investigate(
         self,
@@ -79,8 +110,14 @@ class ReasoningEngine:
         catalog, context = build_evidence_catalog(self._source, scope)
         timeline = build_timeline(self._source.get_events(scope=scope))
 
+        # Include monitors context if available and question is related
+        monitors_context = ""
+        if self._monitors_index and question:
+            if _is_monitor_question(question):
+                monitors_context = get_monitors_context(self._monitors_index)
+
         transcript = _format_history(history, self._history_limit)
-        prompt = _build_user_prompt(context, question, transcript)
+        prompt = _build_user_prompt(context, question, transcript, monitors_context)
         raw = self._llm.complete(_SYSTEM, prompt, deep=True)
         data = extract_json(raw)
         if not isinstance(data, dict):

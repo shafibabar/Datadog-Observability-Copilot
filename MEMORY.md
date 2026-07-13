@@ -1,0 +1,1 @@
+- [Monitors Integration](monitors_integration.md) — Observability Copilot now understands ec-conduct-dd-monitors Terraform repo (21 monitors, 11 dashboards indexed)

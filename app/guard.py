@@ -63,6 +63,10 @@ _ONTOPIC_WORDS = (
     "metric", "metrics", "dashboard", "spike", "spiking", "saturation", "cache",
     "database", "checkout", "api", "endpoint", "service", "alert", "anomaly",
     "regression", "degraded", "crash", "restart", "memory leak", "throttl",
+    # Monitor & configuration keywords
+    "monitor", "monitors", "alerting", "alert", "alerts", "notification", "notifications",
+    "channel", "slack", "threshold", "trigger", "alarm", "critical", "warning",
+    "terraform", "configuration", "config", "alert rule", "monitoring",
 )
 _ONTOPIC_WORD_RE = re.compile(
     r"\b(" + "|".join(re.escape(w) for w in _ONTOPIC_WORDS) + r")\b"
