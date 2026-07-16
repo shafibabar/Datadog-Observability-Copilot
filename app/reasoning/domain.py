@@ -1,28 +1,16 @@
-"""Domain knowledge about the EC observability system.
+"""General SRE investigation knowledge injected into the reasoning system prompt.
 
-This module encodes what the copilot knows about the system architecture,
-services, typical metrics, and failure modes so it can reason effectively
-about incidents and telemetry.
+Deliberately contains ONLY provider- and org-agnostic method knowledge (metric
+categories, failure patterns, investigation discipline). Org-specific ground
+truth — which services exist, which monitors are configured, which metrics they
+watch — comes from the monitors index (app.monitors) and the live evidence
+catalog, never from hand-written constants here: inventing services or tenants
+in the prompt would seed the model with fiction it could present as fact.
 """
 from __future__ import annotations
 
-
-# Services in the system and what they do
-SERVICES = {
-    "message_processing": "Processes incoming messages, handles routing and distribution",
-    "debezium": "Captures change data from sources using CDC connectors",
-    "quota_manager": "Manages quota allocations and consumption tracking",
-    "config_curator": "Manages system configuration and deployment of config changes",
-    "policy_evaluator": "Evaluates policies and applies policy decisions",
-    "indexer": "Indexes documents and manages search/retrieval",
-    "lookback": "Handles lookback processing and backfill operations",
-    "surveillance_filter": "Filters and routes surveillance data",
-    "review_service": "Manages review workflows and decisions",
-    "gateway": "API gateway and request routing",
-}
-
-# Typical metrics per service
-TYPICAL_METRICS = {
+# Metric categories worth considering for any service under investigation.
+METRIC_CATEGORIES = {
     "latency": "Response time (p50, p95, p99), processing time",
     "errors": "Error rate, exception count, 5xx responses",
     "throughput": "Requests/messages per second, queue depth",
@@ -33,7 +21,7 @@ TYPICAL_METRICS = {
     "dlt": "Dead letter topic count, failed message count",
 }
 
-# Common failure modes
+# Failure patterns that commonly explain incidents.
 FAILURE_MODES = {
     "deployment": "New version introduced bug, performance regression, or incompatibility",
     "cache_invalidation": "Cache miss spike, hit ratio drop, increased latency",
@@ -44,61 +32,33 @@ FAILURE_MODES = {
     "config_change": "Configuration change broke service or introduced invalid state",
 }
 
-# Environments
-ENVIRONMENTS = ["prod", "non-prod", "staging", "dev"]
-
-# Tenants (example — typically customer namespaces)
-TYPICAL_TENANTS = ["acme", "contoso", "customer-x"]
-
 
 def get_domain_context() -> str:
-    """Build a domain knowledge summary for injection into the system prompt.
-
-    This is appended to the system prompt so the model understands the
-    observability context, the services, and typical issues.
-    """
+    """Build the method-knowledge block for the reasoning system prompt."""
     lines = [
-        "## EC System Knowledge Base",
+        "## Investigation Method",
         "",
-        "### Services",
-        "The EC system comprises these core services:",
+        "### Metric Categories to Consider",
     ]
-
-    for service, description in SERVICES.items():
-        lines.append(f"- **{service}**: {description}")
-
-    lines.extend([
-        "",
-        "### Typical Metrics to Investigate",
-        "When investigating any service, consider these metric categories:",
-    ])
-
-    for category, description in TYPICAL_METRICS.items():
+    for category, description in METRIC_CATEGORIES.items():
         lines.append(f"- **{category}**: {description}")
 
-    lines.extend([
-        "",
-        "### Common Failure Modes",
-        "Incidents often result from these patterns:",
-    ])
-
+    lines.extend(["", "### Common Failure Modes"])
     for mode, description in FAILURE_MODES.items():
         lines.append(f"- **{mode}**: {description}")
 
     lines.extend([
         "",
-        "### Scope Context",
-        f"- Environments: {', '.join(ENVIRONMENTS)}",
-        f"- Typical tenants: {', '.join(TYPICAL_TENANTS)}",
-        "- Time window: bounded to 7 days max per scope",
-        "",
-        "### Investigation Approach",
+        "### Approach",
         "1. Establish timeline: when did the issue start?",
         "2. Identify scope: which service(s), environment(s), tenant(s)?",
         "3. Find correlation: which metrics/events moved together?",
         "4. Form hypothesis: what change (deploy, config, downstream) preceded it?",
         "5. Test hypothesis: what evidence supports/contradicts it?",
         "6. Recommend: what's the immediate fix? What should we investigate?",
+        "",
+        "Ground every service-specific claim in the evidence catalog and the",
+        "configured-monitors list; if telemetry for a named service is not in the",
+        "catalog, say so as an Unknown rather than inventing plausible numbers.",
     ])
-
     return "\n".join(lines)

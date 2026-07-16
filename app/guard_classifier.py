@@ -1,52 +1,42 @@
 """Semantic relevance classifier for Stage 2 of the guard.
 
 Uses the LLM to make a semantic judgment about whether a message is genuinely
-about system health, telemetry, and incidents — vs off-topic. This runs only
-on the ambiguous middle (questions that didn't trigger keywords but aren't
-clearly off-topic), so cost is bounded.
+about system health, telemetry, and incidents — vs off-topic. This runs only on
+the ambiguous middle (messages Stage 1 neither fast-allowed nor blocked), so
+cost is bounded.
+
+Failure semantics: exceptions are deliberately NOT caught here. `guard.evaluate`
+owns the failure policy — a classifier that raises counts as "refuse" (fail
+closed), per the guard's documented contract. Swallowing errors here would
+silently invert that policy.
 """
 from __future__ import annotations
 
-# System prompt for the classifier: very cheap, yes/no only, no explanation needed
+# System prompt for the classifier: cheap, yes/no only, fast model.
 _CLASSIFIER_SYSTEM = (
     "You are a relevance classifier for an observability/incident investigation system. "
-    "Determine if a message is about system health, telemetry, performance, incidents, or operations. "
-    "Respond with ONLY 'yes' or 'no' (lowercase, no punctuation). "
+    "Determine if a message is about system health, telemetry, performance, incidents, "
+    "or operations — including short conversational follow-ups within such a discussion. "
+    "Respond with ONLY 'yes' or 'no' (lowercase, no punctuation).\n"
     "\n"
-    "You understand these domains:\n"
-    "- System performance: latency, errors, throughput, CPU, memory, disk usage\n"
-    "- Incidents: outages, degradations, anomalies, root causes\n"
-    "- Services: message processing, debezium, quota manager, config curator, policy evaluator, indexer\n"
-    "- Operations: deployments, rollbacks, infrastructure changes, monitoring\n"
-    "- Queue systems: consumer lag, dead letter topics, backlog, processing delays\n"
-    "\n"
-    "Reject: general knowledge, world events, coding questions, unrelated topics.\n"
-    "Accept: any question about system health, telemetry, incidents, or operations."
+    "In scope: system performance (latency, errors, throughput, resources); incidents "
+    "(outages, degradations, root causes); services and their processing pipelines "
+    "(queues, consumers, lag, dead-letter topics); deployments and infrastructure; "
+    "monitoring and alerting configuration.\n"
+    "Out of scope: general knowledge, world events, life advice, coding help, or any "
+    "other topic unrelated to operating a software system."
 )
 
 
-def classify_relevance(text: str, llm_client=None) -> bool:
-    """Classify if a message is relevant to observability/incidents.
+def classify_relevance(text: str, llm_client) -> bool:
+    """Return True when `text` is a genuine observability/operations message.
 
-    Args:
-        text: The user message to classify
-        llm_client: LLMClient instance (e.g., AnthropicClient or ClaudeCliClient)
-
-    Returns:
-        True if relevant, False otherwise. Returns True on error (fail open for legitimate issues).
+    `llm_client` is any LLMClient (AnthropicClient or ClaudeCliClient). Errors
+    propagate to the caller — see the module docstring for why.
     """
-    if not llm_client or not text:
-        return True  # Default to allow if no classifier available
-
-    try:
-        response = llm_client.complete(
-            system=_CLASSIFIER_SYSTEM,
-            prompt=f"Is this about system health, telemetry, or incidents?\n\n{text}",
-            deep=False,  # Use fast model for speed
-        )
-        result = response.strip().lower()
-        return result.startswith("yes")
-    except Exception:
-        # Fail open: if classifier fails, allow the message through
-        # (better to let ambiguous messages through than block legitimate ones)
-        return True
+    response = llm_client.complete(
+        system=_CLASSIFIER_SYSTEM,
+        prompt=f"Is this about system health, telemetry, or incidents?\n\n{text}",
+        deep=False,  # fast model: this is a yes/no gate, not reasoning
+    )
+    return response.strip().lower().startswith("yes")

@@ -1,9 +1,23 @@
 # STATE.md — live status
 
-_Last updated: 2026-07-08_
+_Last updated: 2026-07-13_
 
 ## Current gate
-Plan + Design **approved**. **Iterations 0 & 1 COMPLETE.** **Iteration 2 (scoped investigations + Claude.ai-style UX) is code-complete and green**, pending **live Datadog validation** on the work laptop (blocked only by the `.env`/config step — see "Known gap"). Grounded in **TDD** (see `TESTING.md`, `BUILD-LOG.md` for the narrative).
+**Correlation layer approved + code-complete and green (278 passing)** — pending **live Datadog validation** on the work laptop. Human `.env` steps required: `COPILOT_DATA_SOURCE=datadog`, `DATADOG_TENANT_TAG=kube_namespace`, `MONITORS_REPO_PATH=<checkout>`, plus the Datadog credential. Iterations 0–2 complete.
+
+## Session 2026-07-13 (later) — correlation layer (278 passing, 1 skipped)
+- **Approved via AskUserQuestion, built A→D test-first (+14 specs, `tests/test_correlation.py`):**
+  - **A. Extraction** (`app/monitors/index.py`): all `modules/*/*.tf` (monitors + dashboards) scanned for `ec.*` timeseries queries → normalized query map (**320** on the real repo; interpolations/thresholds/grouping stripped, scope reset to `{*}`, `.as_count()/.as_rate()` kept) + **36-alias vocabulary** (module names + metric service segments).
+  - **B. Adapter merge** (`copilot.merged_metric_queries`): extracted queries feed `LiveDatadogAdapter`; precedence `DATADOG_METRIC_QUERIES` > extracted > infra defaults.
+  - **C. Resolver** (`app/monitors/resolver.py`): deterministic top-8 selection (alias phrases in question > recent history at reduced weight > metric-name token overlap; golden-set fallback = one throughput + one error metric per service). `build_evidence_catalog(metrics=…)` bounds queries; replay path unchanged.
+  - **D. Prompt surface**: service vocabulary added to the always-injected monitors context; selected metrics arrive as normal evidence entries.
+- **Smoke vs real repo:** "how many messages are being processed per second" → `ec.quota_manager.pipeline_processed_counter`; "message processing health" → the message-processing dashboard's own metrics. Discovery: EC's tenant == `kube_namespace` (existing `DATADOG_TENANT_TAG` seam covers it — config only).
+
+## Session 2026-07-13 — monitors integration + debt cleanup (264 passing, 1 skipped)
+- **Monitors knowledge base** (`app/monitors/`): indexes the `ec-conduct-dd-monitors` Terraform repo (21 monitors, 11 dashboards on the primary machine) via **`MONITORS_REPO_PATH`** (new config; empty → empty index, graceful; `monitors_repo_configured` in `/api/status`). Context injected into **every** reasoning prompt when non-empty. Tests use a fixture Terraform tree (portable). Docs: `docs/MONITORS_INTEGRATION.md`.
+- **Guard Stage-2 classifier is now WIRED** (`app/guard_classifier.py`, hooked up in `build_copilot`; supersedes the 2026-07-08 "intentionally left unwired" note). Fail-**closed** on classifier errors per the guard's contract. Stage-1 keyword list expanded with EC service + queue vocabulary, then **re-tightened** (generic words like `rate`/`count`/`issue`/`problem` removed — Stage 2 owns the ambiguous middle).
+- **`app/reasoning/domain.py`**: method knowledge (metric categories, failure modes, investigation steps) in the system prompt; fictional tenants/services removed. Also fixed: null-tolerant Datadog event mapping (`31a2377`).
+- **User-reported gap (drives the current gate):** answers still don't correlate user terms with the Terraform-captured system because the extracted `ec.*` metrics never reach the Datadog adapter's queries — the evidence catalog has no EC telemetry. Correlation-layer proposal pending approval.
 
 ## Iteration 2 — done (2026-07-08)
 - **Relevance & abuse guard** (`app/guard.py`) — finished a red-ahead spec left in the tree; pre-reasoning gate wired into `Copilot.ask`; `_SYSTEM` hardened. Committed `b0e9316`.

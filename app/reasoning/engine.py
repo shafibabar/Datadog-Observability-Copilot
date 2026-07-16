@@ -8,9 +8,8 @@ The engine is LLM-agnostic (depends only on the LLMClient seam).
 """
 from __future__ import annotations
 
-import re
-
 from app.monitors.index import MonitorsIndex, get_monitors_context
+from app.monitors.resolver import select_metrics
 from app.reasoning.domain import get_domain_context
 from app.reasoning.evidence import build_evidence_catalog
 from app.reasoning.llm import LLMClient, extract_json
@@ -49,18 +48,6 @@ _SYSTEM = (
     '"recommendations": [{"claim": str, "confidence": "low|medium|high", "evidence": [id, ...]}], '
     '"unknowns": [{"claim": str, "confidence": "low|medium|high", "evidence": [id, ...]}]}'
 )
-
-_MONITOR_KEYWORDS = re.compile(
-    r"\b(monitor|alert|dashboard|notification|threshold|alarm|critical|warning|"
-    r"terraform|configuration|config|channel)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_monitor_question(text: str) -> bool:
-    """Check if a question is about monitors or alerting configuration."""
-    return _MONITOR_KEYWORDS.search(text) is not None
-
 
 def _format_history(history: list[tuple[str, str]] | None, limit: int) -> str:
     """Render the most recent turns as a compact transcript. Bounded by `limit`
@@ -111,14 +98,24 @@ class ReasoningEngine:
         history: list[tuple[str, str]] | None = None,
         scope: Scope | None = None,
     ) -> Investigation:
-        catalog, context = build_evidence_catalog(self._source, scope)
+        # With a Terraform-extracted metric registry (hundreds of queries), the
+        # resolver bounds the catalog to the metrics relevant to THIS question;
+        # small registries (replay, infra defaults) keep the query-all behavior.
+        selected: list[str] | None = None
+        if self._monitors_index is not None and self._monitors_index.metric_queries:
+            selected = select_metrics(
+                question or "", history, self._monitors_index,
+                available=set(self._source.list_metrics()),
+            )
+        catalog, context = build_evidence_catalog(self._source, scope, metrics=selected)
         timeline = build_timeline(self._source.get_events(scope=scope))
 
-        # Include monitors context if available and question is related
+        # The configured-monitors index is part of the system's ground truth, so
+        # it is always in context (not keyword-gated — a question like "is message
+        # processing healthy?" needs it as much as "what monitors do we have?").
         monitors_context = ""
-        if self._monitors_index and question:
-            if _is_monitor_question(question):
-                monitors_context = get_monitors_context(self._monitors_index)
+        if self._monitors_index is not None:
+            monitors_context = get_monitors_context(self._monitors_index)
 
         transcript = _format_history(history, self._history_limit)
         prompt = _build_user_prompt(context, question, transcript, monitors_context)

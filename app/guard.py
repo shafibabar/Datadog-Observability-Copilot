@@ -54,7 +54,11 @@ _INJECTION_PATTERNS = [
 # on word boundaries; phrases are matched as substrings). Deliberately precise —
 # generic words like "change" or "worse" are excluded so genuinely ambiguous
 # messages fall through to Stage 2 rather than being auto-allowed.
-_ONTOPIC_PHRASES = ("root cause", "error rate", "hit ratio", "response time")
+_ONTOPIC_PHRASES = (
+    "root cause", "error rate", "hit ratio", "response time",
+    "message processing", "quota manager", "config curator", "policy evaluator",
+    "review service", "dead letter", "alert rule", "memory leak", "per second",
+)
 _ONTOPIC_WORDS = (
     # Performance & behavior
     "latency", "p50", "p95", "p99", "deploy", "deployment", "rollback", "slow",
@@ -63,28 +67,19 @@ _ONTOPIC_WORDS = (
     "incident", "outage", "downtime", "slo", "sla", "trace", "traces", "span",
     "metric", "metrics", "dashboard", "spike", "spiking", "saturation", "cache",
     "database", "checkout", "api", "endpoint", "service", "alert", "anomaly",
-    "regression", "degraded", "crash", "restart", "memory leak", "throttl",
-    # Monitor & configuration
-    "monitor", "monitors", "alerting", "alert", "alerts", "notification", "notifications",
-    "channel", "slack", "threshold", "trigger", "alarm", "critical", "warning",
-    "terraform", "configuration", "config", "alert rule", "monitoring",
-    # System-specific (EC services)
-    "message processing", "debezium", "quota manager", "config curator", "policy evaluator",
-    "indexer", "lookback", "surveillance", "audit", "review service", "gateway",
+    "regression", "degraded", "crash", "restart", "throttl",
+    # Monitors & alerting configuration
+    "monitor", "monitors", "alerting", "alerts", "notification", "notifications",
+    "threshold", "alarm", "terraform", "monitoring",
+    # EC service names (single-token; multi-word ones live in _ONTOPIC_PHRASES)
+    "debezium", "indexer", "lookback", "surveillance", "audit", "gateway",
     # Queue & processing concepts
-    "queue", "consumer", "lag", "throughput", "processing", "batch", "backlog",
-    "failure", "retry", "timeout", "dlt", "dead letter", "backpressure",
-    "rate", "count", "frequency", "volume", "processed", "pending",
-    # Deployment & infrastructure
-    "pod", "container", "kubernetes", "deployment", "replica", "version",
-    # Environment & scope
-    "prod", "production", "staging", "dev", "environment", "tenant",
+    "queue", "consumer", "lag", "backlog", "retry", "dlt", "backpressure",
+    "processed", "pending",
+    # Infrastructure
+    "pod", "container", "kubernetes", "replica",
     # Performance issues
-    "delay", "slow", "bottleneck", "contention", "lock", "deadlock",
-    "exhausted", "saturated", "peaked", "elevated", "baseline",
-    # System health
-    "health", "status", "available", "unavailable", "failed", "failure",
-    "broken", "issue", "problem", "bug", "fire", "emergency",
+    "delay", "bottleneck", "contention", "deadlock", "saturated",
 )
 _ONTOPIC_WORD_RE = re.compile(
     r"\b(" + "|".join(re.escape(w) for w in _ONTOPIC_WORDS) + r")\b"

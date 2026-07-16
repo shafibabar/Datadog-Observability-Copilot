@@ -239,7 +239,11 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     if backend == "none":
         return None
 
-    source = _build_source(settings)
+    # Monitors knowledge base (empty when MONITORS_REPO_PATH is unset/missing).
+    # Built before the source so extracted metric queries can feed the adapter.
+    monitors_index = build_monitors_index(settings.monitors_repo_path)
+
+    source = _build_source(settings, monitors_index.metric_queries)
     if backend == "sdk":
         from app.reasoning.llm import AnthropicClient
 
@@ -253,14 +257,13 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
         llm = ClaudeCliClient(model_fast=settings.model_fast, model_deep=settings.model_deep)
 
-    # Build monitors knowledge base for enriched context
-    monitors_index = build_monitors_index()
-
     engine = ReasoningEngine(source, llm, monitors_index=monitors_index)
     store = WorkspaceStore(settings.workspace_db)
 
-    # Build the classifier for Stage 2 guard (semantic relevance checking)
-    classifier = lambda msg: classify_relevance(msg, llm)
+    # Stage-2 guard classifier: semantic relevance via the fast model. Errors
+    # propagate into guard.evaluate, which fails closed by design.
+    def classifier(msg: str) -> bool:
+        return classify_relevance(msg, llm)
 
     return Copilot(
         source, engine, store,
@@ -272,7 +275,17 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     )
 
 
-def _build_source(settings) -> DataSource:
+def merged_metric_queries(
+    extracted: dict[str, str] | None, configured: dict[str, str] | None
+) -> dict[str, str] | None:
+    """Combine the Terraform-extracted metric map with the explicit
+    DATADOG_METRIC_QUERIES config. Precedence: configured > extracted; None
+    when both are empty (the adapter then uses its built-in infra defaults)."""
+    merged = {**(extracted or {}), **(configured or {})}
+    return merged or None
+
+
+def _build_source(settings, extracted_metric_queries: dict[str, str] | None = None) -> DataSource:
     if settings.data_source == "datadog" and settings.has_datadog:
         from app.telemetry.datadog import LiveDatadogAdapter
 
@@ -283,7 +296,8 @@ def _build_source(settings) -> DataSource:
             site=settings.datadog_site,
             tenant_tag=settings.datadog_tenant_tag,
             discovery_metric=settings.datadog_discovery_metric,
-            metric_queries=settings.datadog_metric_queries,
+            metric_queries=merged_metric_queries(
+                extracted_metric_queries, settings.datadog_metric_queries),
             verify=settings.datadog_verify,
         )
     from app.telemetry.replay import ReplayAdapter

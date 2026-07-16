@@ -80,6 +80,9 @@ class Settings:
     # App
     data_source: str = field(default_factory=lambda: _get("COPILOT_DATA_SOURCE", "replay").lower())
     workspace_db: str = field(default_factory=lambda: _get("COPILOT_WORKSPACE_DB", "data/workspace.db"))
+    # Local checkout of the Terraform monitors repo (ec-conduct-dd-monitors) to index
+    # for monitor/dashboard knowledge. Machine-specific — empty disables the index.
+    monitors_repo_path: str = field(default_factory=lambda: _get("MONITORS_REPO_PATH"))
 
     # --- Capability checks (never expose the secret values themselves) ---
     @property
@@ -123,6 +126,7 @@ class Settings:
             "model_deep": self.model_deep,
             "dotenv_path": str(DOTENV_PATH),
             "dotenv_loaded": bool(DOTENV_LOADED),
+            "monitors_repo_configured": bool(self.monitors_repo_path),
         }
 
 

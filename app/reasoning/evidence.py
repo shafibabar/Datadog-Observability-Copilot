@@ -19,8 +19,16 @@ MAX_CATALOG_EVENTS = 60
 
 
 def build_evidence_catalog(
-    source: DataSource, scope: Scope | None = None
+    source: DataSource,
+    scope: Scope | None = None,
+    metrics: list[str] | None = None,
 ) -> tuple[dict[str, Evidence], str]:
+    """Build the citable-evidence catalog.
+
+    `metrics` restricts which metric series are fetched (the resolver's bounded
+    selection for large extracted registries); None keeps the original
+    query-everything behavior for small registries (replay, infra defaults).
+    """
     catalog: dict[str, Evidence] = {}
     lines: list[str] = []
 
@@ -34,7 +42,9 @@ def build_evidence_catalog(
         catalog[eid] = Evidence(id=eid, kind="event", ref=e.id, detail=detail)
         lines.append(f"{eid}: {detail}")
 
-    for name in source.list_metrics():
+    registered = source.list_metrics()
+    names = [m for m in metrics if m in registered] if metrics is not None else registered
+    for name in names:
         series = source.get_metric(name, scope=scope)
         if not series.points:
             continue
