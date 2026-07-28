@@ -79,3 +79,7 @@ canvas { width: 100%; display: block; }
 .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
 .badge.impl { background: #7c5cff22; color: #b9a7ff; }
 .badge.plan { background: #38bdf822; color: #8fd6f5; }
+
+/* "Highlights" toggle in the prompt-log header */
+.hl-toggle { float: right; font-size: 12px; font-weight: 400; color: var(--muted, #9aa3b2); cursor: pointer; }
+.hl-toggle input { vertical-align: middle; margin-right: 4px; }
