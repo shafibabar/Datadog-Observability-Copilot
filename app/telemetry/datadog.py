@@ -174,10 +174,10 @@ class LiveDatadogAdapter(DataSource):
                 id=str(ev.get("id")),
                 timestamp=datetime.fromtimestamp(ev["date_happened"], tz=timezone.utc),
                 source=_classify_source(ev),
-                title=ev.get("title", ""),
-                description=ev.get("text", ""),
+                title=ev.get("title") or "",
+                description=ev.get("text") or "",
                 severity=_map_severity(ev.get("alert_type")),
-                metadata={"tags": ev.get("tags", [])},
+                metadata={"tags": ev.get("tags") or []},
             ))
         return sorted(out, key=lambda e: e.timestamp)
 

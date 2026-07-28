@@ -54,15 +54,32 @@ _INJECTION_PATTERNS = [
 # on word boundaries; phrases are matched as substrings). Deliberately precise —
 # generic words like "change" or "worse" are excluded so genuinely ambiguous
 # messages fall through to Stage 2 rather than being auto-allowed.
-_ONTOPIC_PHRASES = ("root cause", "error rate", "hit ratio", "response time")
+_ONTOPIC_PHRASES = (
+    "root cause", "error rate", "hit ratio", "response time",
+    "message processing", "quota manager", "config curator", "policy evaluator",
+    "review service", "dead letter", "alert rule", "memory leak", "per second",
+)
 _ONTOPIC_WORDS = (
+    # Performance & behavior
     "latency", "p50", "p95", "p99", "deploy", "deployment", "rollback", "slow",
     "slowness", "error", "errors", "5xx", "4xx", "timeout", "healthy", "health",
     "unhealthy", "cpu", "memory", "disk", "throughput", "rps", "qps", "traffic",
     "incident", "outage", "downtime", "slo", "sla", "trace", "traces", "span",
     "metric", "metrics", "dashboard", "spike", "spiking", "saturation", "cache",
     "database", "checkout", "api", "endpoint", "service", "alert", "anomaly",
-    "regression", "degraded", "crash", "restart", "memory leak", "throttl",
+    "regression", "degraded", "crash", "restart", "throttl",
+    # Monitors & alerting configuration
+    "monitor", "monitors", "alerting", "alerts", "notification", "notifications",
+    "threshold", "alarm", "terraform", "monitoring",
+    # EC service names (single-token; multi-word ones live in _ONTOPIC_PHRASES)
+    "debezium", "indexer", "lookback", "surveillance", "audit", "gateway",
+    # Queue & processing concepts
+    "queue", "consumer", "lag", "backlog", "retry", "dlt", "backpressure",
+    "processed", "pending",
+    # Infrastructure
+    "pod", "container", "kubernetes", "replica",
+    # Performance issues
+    "delay", "bottleneck", "contention", "deadlock", "saturated",
 )
 _ONTOPIC_WORD_RE = re.compile(
     r"\b(" + "|".join(re.escape(w) for w in _ONTOPIC_WORDS) + r")\b"
