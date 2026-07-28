@@ -138,13 +138,24 @@ def test_chat_accepts_and_persists_scope(wired):
     assert convo["scope"]["environments"] == ["prod"]
 
 
-def test_chat_rejects_scope_with_no_selection(wired):
+def test_chat_accepts_scope_with_no_env_tenant_selection(wired):
+    # Environments/tenants are optional now — no platform default is configured
+    # in this fixture, so an unfiltered (but time-bounded) scope is persisted.
     cid = _new_conversation()
     r = client.post(f"/api/conversations/{cid}/chat",
                     json={"message": "Why slow?", "persona": "sre",
                           "scope": _scope_body(environments=[], tenants=[])})
-    assert r.status_code == 400
-    assert "environment or tenant" in r.json()["error"]
+    assert r.status_code == 200
+    convo = client.get(f"/api/conversations/{cid}").json()
+    assert convo["scope"]["environments"] == [] and convo["scope"]["tenants"] == []
+
+
+def test_chat_with_no_scope_at_all_still_gets_a_default_window(wired):
+    cid = _new_conversation()
+    r = client.post(f"/api/conversations/{cid}/chat", json={"message": "Why slow?", "persona": "sre"})
+    assert r.status_code == 200
+    scope = client.get(f"/api/conversations/{cid}").json()["scope"]
+    assert scope["start"] is not None and scope["end"] is not None
 
 
 def test_chat_rejects_scope_over_seven_days(wired):

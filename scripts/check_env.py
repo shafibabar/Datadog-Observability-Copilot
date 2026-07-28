@@ -68,6 +68,13 @@ def main() -> int:
     print(f"  datadog_discovery    : {s.datadog_discovery_metric}")
     print(f"  datadog_tls_verify   : {s.datadog_verify!r}"
           + ("  (CA bundle path)" if isinstance(s.datadog_verify, str) else ""))
+    print(f"  platform_scope       : {'configured' if s.has_platform_scope else 'NOT configured (all blank)'}")
+    print(f"    environments       : {list(s.platform_environments)}")
+    print(f"    tenants            : {list(s.platform_tenants)}")
+    print(f"    metrics            : {list(s.platform_metrics)}")
+    print(f"    log_sources        : {list(s.platform_log_sources)}")
+    print(f"    trace_services     : {list(s.platform_trace_services)}")
+    print(f"    default_window_days: {s.platform_default_window_days}")
     print("=" * 64)
 
     problems = []

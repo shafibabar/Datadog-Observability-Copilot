@@ -37,39 +37,26 @@
       <div class="composer-wrap">
         <div class="composer-shell">
           <form id="composer" class="composer">
-            <textarea id="input" rows="1"
-              placeholder="Ask about system health, recent changes, or an incident…"></textarea>
+            <div id="input" class="composer-input" contenteditable="true" role="textbox"
+              aria-multiline="true"
+              data-placeholder="Ask about system health, recent changes, or an incident… (type @ to narrow by environment, tenant, or duration)"></div>
             <button type="submit" id="send" class="send" title="Send" aria-label="Send">↑</button>
           </form>
           <div class="controls" id="controls">
-            <div class="scope-menu" id="scope-menu">
-              <button type="button" id="scope-trigger" class="scope-trigger" aria-haspopup="true">
-                <span id="scope-summary">Set scope</span><span class="ms-caret">⌄</span>
-              </button>
-              <div class="scope-panel" id="scope-panel" hidden></div>
-            </div>
-            <!-- hidden state holders the scope menu reads/writes -->
-            <select id="duration-select" class="sr-only" tabindex="-1" aria-hidden="true">
-              <option value="1h" selected>Last 1 hour</option>
-              <option value="2h">Last 2 hours</option>
-              <option value="4h">Last 4 hours</option>
-              <option value="8h">Last 8 hours</option>
-              <option value="1d">Last 1 day</option>
-              <option value="2d">Last 2 days</option>
-              <option value="1w">Last 1 week</option>
-              <option value="custom">Custom range…</option>
-            </select>
-            <select id="persona" class="sr-only" tabindex="-1" aria-hidden="true">
+            <select id="persona" class="persona-select">
               <option value="support">Support Engineer</option>
               <option value="sre" selected>Site Reliability Engineer</option>
               <option value="swe">Software Engineer</option>
               <option value="pm">Product Manager</option>
               <option value="leadership">Engineering Leadership</option>
             </select>
+            <span id="scope-status" class="scope-status"></span>
           </div>
         </div>
-        <div id="scope-hint" class="scope-hint"></div>
       </div>
+
+      <!-- @ scope menu: opens anchored to the caret when "@" is typed in the composer -->
+      <div id="at-menu" class="at-menu" hidden></div>
     </main>
 
     <div class="resizer" id="resize-right" title="Drag to resize · click chevron to collapse">

@@ -1,9 +1,9 @@
 """Real-browser smoke test for the product UI (opt-in).
 
 Unlike tests/test_web_ui.py (which asserts served markup), this drives an actual
-browser so it catches things only a render exposes — e.g. the scope menu closing
-itself on drill-down. It is SKIPPED unless Playwright and a browser are installed,
-so the default offline suite stays green.
+browser so it catches things only a render exposes — e.g. caret positioning for
+the @ menu, or a chip actually landing in the composer. It is SKIPPED unless
+Playwright and a browser are installed, so the default offline suite stays green.
 
 To enable it (on a machine with network):
     pip install playwright
@@ -11,8 +11,9 @@ To enable it (on a machine with network):
     pytest tests/test_smoke_playwright.py
 
 It launches the app itself (uvicorn subprocess, replay data source, no keys) and
-only exercises UI that works without an LLM backend: the scope menu and its
-Duration / Explain-as submenus (which are static), plus the composer.
+only exercises UI that works without an LLM backend: typing "@" in the composer
+to open the scope menu, drilling into its Duration submenu (static), and picking
+an Environment value to confirm a locked chip lands inline.
 """
 import socket
 import subprocess
@@ -69,36 +70,50 @@ def page(base_url):
             pytest.skip(f"no browser available: {exc}")
         pg = browser.new_page()
         pg.goto(base_url, wait_until="domcontentloaded")
-        pg.wait_for_selector("#scope-trigger")
+        pg.wait_for_selector("#input")
         yield pg
         browser.close()
 
 
-def test_scope_menu_opens_and_shows_categories(page):
-    page.click("#scope-trigger")
-    panel = page.locator("#scope-panel")
-    panel.wait_for(state="visible")
-    for category in ("Environment", "Tenant", "Duration", "Explain as"):
-        assert panel.get_by_text(category, exact=False).first.is_visible()
+def _type_at(page):
+    page.click("#input")
+    page.keyboard.type("@")
+
+
+def test_at_sign_opens_the_menu_with_categories(page):
+    _type_at(page)
+    menu = page.locator("#at-menu")
+    menu.wait_for(state="visible")
+    for category in ("Environment", "Tenant", "Duration"):
+        assert menu.get_by_text(category, exact=False).first.is_visible()
+    # clean up so later tests start from an empty composer
+    page.keyboard.press("Escape")
+    page.locator("#input").evaluate("el => el.innerHTML = ''")
 
 
 def test_duration_submenu_shows_presets(page):
-    page.click("#scope-trigger")
-    page.locator("#scope-panel").get_by_text("Duration", exact=False).first.click()
-    panel = page.locator("#scope-panel")
-    # drilling in must NOT close the menu (the bug we fixed) and must list presets
-    assert panel.get_by_text("Last 1 hour").first.is_visible()
-    assert panel.get_by_text("Last 1 week").first.is_visible()
+    _type_at(page)
+    page.locator("#at-menu").get_by_text("Duration", exact=False).first.click()
+    menu = page.locator("#at-menu")
+    # drilling in must NOT close the menu and must list presets
+    assert menu.get_by_text("Last 1 hour").first.is_visible()
+    assert menu.get_by_text("Last 1 week").first.is_visible()
+    page.keyboard.press("Escape")
+    page.locator("#input").evaluate("el => el.innerHTML = ''")
 
 
-def test_explain_as_submenu_shows_personas(page):
-    page.click("#scope-trigger")
-    page.locator("#scope-panel").get_by_text("Explain as", exact=False).first.click()
-    panel = page.locator("#scope-panel")
-    assert panel.get_by_text("Site Reliability Engineer").first.is_visible()
-    assert panel.get_by_text("Support Engineer").first.is_visible()
+def test_picking_an_environment_inserts_a_locked_chip(page):
+    _type_at(page)
+    page.locator("#at-menu").get_by_text("Environment", exact=False).first.click()
+    menu = page.locator("#at-menu")
+    menu.locator(".scope-opt").first.click()
+    chip = page.locator("#input .scope-chip")
+    assert chip.count() == 1
+    assert chip.get_attribute("contenteditable") == "false"
+    page.locator("#input").evaluate("el => el.innerHTML = ''")
 
 
-def test_composer_is_present(page):
+def test_composer_and_persona_control_are_present(page):
     assert page.locator("#input").is_visible()
     assert page.locator("#send").count() == 1
+    assert page.locator("#persona").is_visible()

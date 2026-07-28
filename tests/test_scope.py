@@ -33,14 +33,21 @@ def test_valid_scope_has_no_error():
     assert _scope().validation_error() is None
 
 
-def test_requires_at_least_one_env_or_tenant():
-    err = _scope(environments=[], tenants=[]).validation_error()
-    assert err and "environment or tenant" in err
+def test_no_selection_is_valid_scope_defaults_downstream():
+    # Environments/tenants are no longer mandatory here — an unset selection is
+    # backfilled by the Copilot from the platform-scope config, not rejected.
+    assert _scope(environments=[], tenants=[]).validation_error() is None
 
 
-def test_requires_a_duration():
-    assert _scope(start=None, end=None).validation_error() is not None
+def test_fully_unset_duration_is_valid_scope_defaults_downstream():
+    # Neither start nor end given -> the Copilot fills in the default window.
+    assert _scope(start=None, end=None).validation_error() is None
+
+
+def test_partial_duration_is_rejected():
+    # Only one of start/end given is ambiguous -> reject rather than guess.
     assert _scope(end=None).validation_error() is not None
+    assert _scope(start=None).validation_error() is not None
 
 
 def test_rejects_end_before_start():

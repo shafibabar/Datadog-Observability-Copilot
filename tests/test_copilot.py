@@ -67,14 +67,15 @@ def _payload(evidence_id: str) -> dict:
     }
 
 
-def build_copilot_under_test(guard_enabled=True):
+def build_copilot_under_test(guard_enabled=True, **copilot_kwargs):
     source = ReplayAdapter()
     catalog, _ = build_evidence_catalog(source)
     valid_id = next(iter(catalog))
     llm = FakeLLM(_payload(valid_id))
     engine = ReasoningEngine(source, llm)
     store = WorkspaceStore(":memory:")
-    cp = Copilot(source, engine, store, incident_id="replay-demo", guard_enabled=guard_enabled)
+    cp = Copilot(source, engine, store, incident_id="replay-demo", guard_enabled=guard_enabled,
+                 **copilot_kwargs)
     return cp, llm, store, valid_id
 
 
@@ -242,6 +243,81 @@ def test_get_conversation_includes_scope():
     assert cp.get_conversation(cid)["scope"]["environments"] == ["prod"]
 
 
+# --- platform-scope defaults (no forced env/tenant/duration selection) ------
+
+def test_ask_without_any_scope_applies_the_platform_default():
+    from datetime import timedelta
+
+    cp, _llm, store, _ = build_copilot_under_test(
+        default_environments=("production",), default_tenants=("acme",),
+        default_window_days=3,
+    )
+    cid = cp.new_conversation()
+    cp.ask(cid, "Is the system healthy?", "sre")   # no scope at all
+    scope = store.get_scope(cid)
+    assert scope.environments == ["production"]
+    assert scope.tenants == ["acme"]
+    assert scope.start is not None and scope.end is not None
+    assert abs((scope.end - scope.start) - timedelta(days=3)) < timedelta(seconds=5)
+
+
+def test_ask_partial_scope_backfills_only_the_missing_fields():
+    from app.telemetry.models import Scope
+
+    cp, _llm, store, _ = build_copilot_under_test(
+        default_environments=("production",), default_tenants=("acme",),
+    )
+    cid = cp.new_conversation()
+    explicit_window = _valid_scope()  # has start/end but no environments/tenants
+    cp.ask(cid, "Why is checkout slow?", "sre",
+           scope=Scope(start=explicit_window.start, end=explicit_window.end))
+    scope = store.get_scope(cid)
+    assert scope.environments == ["production"]      # backfilled
+    assert scope.tenants == ["acme"]                  # backfilled
+    assert scope.start == explicit_window.start       # the user's own choice kept
+    assert scope.end == explicit_window.end
+
+
+def test_ask_with_no_platform_default_configured_leaves_scope_unfiltered():
+    cp, _llm, store, _ = build_copilot_under_test()  # no defaults passed
+    cid = cp.new_conversation()
+    cp.ask(cid, "Is the system healthy?", "sre")
+    scope = store.get_scope(cid)
+    assert scope.environments == [] and scope.tenants == []
+    assert scope.start is not None and scope.end is not None   # window still filled
+
+
+# --- guard vocabulary sourced from platform config --------------------------
+
+def test_guard_extra_vocabulary_lets_platform_terms_through():
+    cp, llm, _store, _ = build_copilot_under_test(guard_extra_vocabulary=("acme",))
+    cid = cp.new_conversation()
+    cp.ask(cid, "How is acme doing?", "sre")
+    assert llm.calls == 1   # not blocked
+
+
+def test_without_extra_vocabulary_the_same_message_is_blocked():
+    cp, llm, _store, _ = build_copilot_under_test()
+    cid = cp.new_conversation()
+    cp.ask(cid, "How is acme doing?", "sre")
+    assert llm.calls == 0   # blocked — "acme" isn't generic on-topic vocabulary
+
+
+# --- list_scopes serves the static platform config once configured ---------
+
+def test_list_scopes_uses_platform_config_when_set():
+    cp, _llm, _store, _ = build_copilot_under_test(
+        default_environments=("only-env",), default_tenants=("only-tenant",),
+    )
+    assert cp.list_scopes() == {"environments": ["only-env"], "tenants": ["only-tenant"]}
+
+
+def test_list_scopes_falls_back_to_the_data_source_when_unconfigured():
+    cp, _llm, _store, _ = build_copilot_under_test()   # no platform defaults
+    data = cp.list_scopes()
+    assert "production" in data["environments"]   # ReplayAdapter's own static set
+
+
 # --- rename / delete --------------------------------------------------------
 
 def test_rename_conversation():
@@ -298,6 +374,23 @@ def test_build_copilot_builds_replay_with_key(monkeypatch):
     assert isinstance(cp, Copilot)
     # a key present prefers the SDK backend under the default "auto" policy
     assert isinstance(cp._engine._llm, AnthropicClient)
+
+
+def test_build_copilot_threads_platform_scope_settings_through(monkeypatch):
+    # End-to-end: COPILOT_PLATFORM_* env vars -> Settings -> build_copilot ->
+    # a Copilot whose list_scopes/guard vocabulary reflect them.
+    _clear(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
+    monkeypatch.setenv("COPILOT_PLATFORM_ENVIRONMENTS", "production")
+    monkeypatch.setenv("COPILOT_PLATFORM_TENANTS", "acme,globex")
+    monkeypatch.setenv("COPILOT_PLATFORM_METRICS", "zephyr.orders.count")
+    monkeypatch.setenv("COPILOT_PLATFORM_DEFAULT_WINDOW_DAYS", "5")
+    cp = build_copilot(Settings())
+    assert isinstance(cp, Copilot)
+    assert cp.list_scopes() == {"environments": ["production"], "tenants": ["acme", "globex"]}
+    assert "zephyr.orders.count" in cp._guard_extra_vocabulary
+    assert cp._default_window_days == 5
 
 
 def test_build_source_selects_replay_by_default(monkeypatch):

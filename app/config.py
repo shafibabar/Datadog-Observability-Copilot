@@ -37,6 +37,12 @@ def _get_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in ("0", "false", "no", "off")
 
 
+def _get_list(name: str) -> tuple[str, ...]:
+    """Parse a comma-separated env var into a tuple of stripped, non-empty values."""
+    raw = os.environ.get(name, "")
+    return tuple(v.strip() for v in raw.split(",") if v.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     # Anthropic / Claude
@@ -77,6 +83,23 @@ class Settings:
     # to your golden signals (latency/errors/throughput/…) once you know their names.
     datadog_metric_queries_raw: str = field(default_factory=lambda: _get("DATADOG_METRIC_QUERIES"))
 
+    # Platform scope: narrows the guard's on-topic vocabulary + the @ scope menu
+    # to one known platform (few environments/tenants, known metric/log/trace
+    # names). All optional; blank means "not configured yet" (see README).
+    platform_environments: tuple[str, ...] = field(
+        default_factory=lambda: _get_list("COPILOT_PLATFORM_ENVIRONMENTS"))
+    platform_tenants: tuple[str, ...] = field(
+        default_factory=lambda: _get_list("COPILOT_PLATFORM_TENANTS"))
+    platform_metrics: tuple[str, ...] = field(
+        default_factory=lambda: _get_list("COPILOT_PLATFORM_METRICS"))
+    platform_log_sources: tuple[str, ...] = field(
+        default_factory=lambda: _get_list("COPILOT_PLATFORM_LOG_SOURCES"))
+    platform_trace_services: tuple[str, ...] = field(
+        default_factory=lambda: _get_list("COPILOT_PLATFORM_TRACE_SERVICES"))
+    # Default lookback (days) applied when a question doesn't specify a duration.
+    platform_default_window_days: int = field(
+        default_factory=lambda: int(_get("COPILOT_PLATFORM_DEFAULT_WINDOW_DAYS", "2") or "2"))
+
     # App
     data_source: str = field(default_factory=lambda: _get("COPILOT_DATA_SOURCE", "replay").lower())
     workspace_db: str = field(default_factory=lambda: _get("COPILOT_WORKSPACE_DB", "data/workspace.db"))
@@ -96,6 +119,14 @@ class Settings:
         """The value httpx's `verify` wants: a CA-bundle path when one is set,
         otherwise the on/off toggle."""
         return self.datadog_ca_bundle or self.datadog_verify_ssl
+
+    @property
+    def has_platform_scope(self) -> bool:
+        """True once at least one platform-scope list has been filled in."""
+        return bool(
+            self.platform_environments or self.platform_tenants or self.platform_metrics
+            or self.platform_log_sources or self.platform_trace_services
+        )
 
     @property
     def datadog_metric_queries(self) -> dict | None:
@@ -121,6 +152,7 @@ class Settings:
             "datadog_site": self.datadog_site,
             "model_fast": self.model_fast,
             "model_deep": self.model_deep,
+            "platform_scope_configured": self.has_platform_scope,
             "dotenv_path": str(DOTENV_PATH),
             "dotenv_loaded": bool(DOTENV_LOADED),
         }

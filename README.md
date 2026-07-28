@@ -277,6 +277,38 @@ python scripts/check_env.py
 
 ---
 
+## Narrow the Copilot to one platform (recommended before going live)
+
+Once you're pointed at a real Datadog org, the Copilot works best scoped to **one
+platform** whose telemetry shape you already know, rather than trying to reason about
+everything in the org. These settings live in `.env` (see `.env.example` for the exact
+keys, defaults, and inline format examples) — fill them in on whichever machine has
+your Datadog access, then restart the app. All are optional: leave them blank to keep
+the current, generic behavior.
+
+They do two things: (1) become the **only choices offered by the `@` scope menu** in
+the composer, and (2) extend the **relevance guard's on-topic vocabulary** so it
+recognizes this platform's actual terms, not just generic words like "latency"/"cpu".
+
+| Setting | What it limits | Where to find the values in Datadog |
+|---|---|---|
+| `COPILOT_PLATFORM_ENVIRONMENTS` | `env` tag values the `@` menu offers | Any page with the environment picker (top nav on **APM** or **Infrastructure**); or **Metrics → Explorer**, graph one of your platform's metrics, and check the `env` facet in the tag list |
+| `COPILOT_PLATFORM_TENANTS` | Tenant values the `@` menu offers (tag key set by `DATADOG_TENANT_TAG`, default `tenant`) | **Metrics → Explorer**, graph one of your platform's metrics, expand the tag facet for your tenant key — the distinct values shown are your tenant list |
+| `COPILOT_PLATFORM_METRICS` | Metric names the guard recognizes as on-topic | **Metrics → Summary** — lists every metric name in your org, searchable; filter by your platform's namespace/prefix |
+| `COPILOT_PLATFORM_LOG_SOURCES` | Log sources/services the guard recognizes | **Logs → Search**, left-hand facet panel → **Source** (or **Service**) — the values listed for your platform's logs |
+| `COPILOT_PLATFORM_TRACE_SERVICES` | APM services the guard recognizes | **APM → Services** — lists every instrumented service org-wide; pick the ones belonging to this platform |
+| `COPILOT_PLATFORM_DEFAULT_WINDOW_DAYS` | Default lookback (days) when no duration is picked via `@` | Not a Datadog lookup — just a number; defaults to `2` |
+
+> Exact menu labels can shift slightly between Datadog UI versions/plans — if a path
+> above doesn't match what you see, search Datadog's in-app help for "Metrics Summary",
+> "Log facets", or "APM Services" to find the current equivalent.
+
+`python scripts/check_env.py` (above) also prints whether platform scope is configured
+and exactly what it resolved to, so you can confirm it loaded correctly after editing
+`.env`.
+
+---
+
 ## How it's organized
 
 ```

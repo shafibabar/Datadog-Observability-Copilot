@@ -1,9 +1,16 @@
 # STATE.md — live status
 
-_Last updated: 2026-07-08_
+_Last updated: 2026-07-27_
 
 ## Current gate
-Plan + Design **approved**. **Iterations 0 & 1 COMPLETE.** **Iteration 2 (scoped investigations + Claude.ai-style UX) is code-complete and green**, pending **live Datadog validation** on the work laptop (blocked only by the `.env`/config step — see "Known gap"). Grounded in **TDD** (see `TESTING.md`, `BUILD-LOG.md` for the narrative).
+Plan + Design **approved**. **Iterations 0 & 1 COMPLETE. Iteration 2 code-complete**, pending live Datadog validation (see "Known gap"). **Iteration 3 (platform-narrowed scope) is code-complete and green — both phases done.** Two things remain before this ships: (1) fill in real `COPILOT_PLATFORM_*` values on the company laptop with Datadog access, (2) **manually verify the `@` menu in a real browser** — this sandbox couldn't install Chromium's system deps (needs root `apt`), so the caret-anchored popover/chip behavior is covered only by static contract tests, not an actual render. Grounded in **TDD** (see `TESTING.md`, `BUILD-LOG.md` for the narrative).
+
+## Iteration 3 — platform-narrowed scope (done 2026-07-27)
+- **Problem:** scope selection (env/tenant) was a hard, unconditional gate before any question could be asked; separately, the relevance guard only recognized ~40 generic words, so most real phrasing about a specific tenant/service/metric was refused (Stage-2 classifier still unwired).
+- **Phase 1 (backend):** new optional `COPILOT_PLATFORM_ENVIRONMENTS/_TENANTS/_METRICS/_LOG_SOURCES/_TRACE_SERVICES/_DEFAULT_WINDOW_DAYS` config (`.env.example`, `app/config.py`, README table of exactly where to find each value in the Datadog UI). `Scope.validation_error()` no longer requires a selection or duration. `Copilot._with_defaults()` backfills missing scope fields from that config (or an unfiltered 2-day window if unconfigured) and persists the result — zero scope interaction needed to ask a question. `guard.evaluate()` gained `extra_vocabulary` (the platform's own terms). `list_scopes()`/`/api/scopes` serve the static config directly, bypassing live discovery. `scripts/check_env.py` reports what resolved.
+- **Phase 2 (UI):** removed the old scope-picker panel entirely. Composer (`#input`) rebuilt as `contenteditable` (a plain `<textarea>` can't host an inline chip). Typing `@` opens a caret-anchored `#at-menu` (Environment/Tenant/Duration); a selection inserts a locked, non-editable chip (click-to-remove "✕", never backspace-parsed). `composerText()`/`scopePayload()` read the message and the scope as two independent passes over the composer's DOM — never one parsed from the other — and an empty selection (`scopePayload()` returns `undefined`) reuses the conversation's existing scope rather than resetting it every turn. Persona stays a plain visible `<select>`. Send is no longer gated on scope.
+- **279/280 green** (1 skip — Playwright, needs a browser), 98% coverage. See DECISIONS 2026-07-27 for both phases, including the untested-in-a-real-browser caveat.
+- **Next:** manual/real-browser verification of the `@` menu; fill in real `COPILOT_PLATFORM_*` values on the company laptop.
 
 ## Iteration 2 — done (2026-07-08)
 - **Relevance & abuse guard** (`app/guard.py`) — finished a red-ahead spec left in the tree; pre-reasoning gate wired into `Copilot.ask`; `_SYSTEM` hardened. Committed `b0e9316`.
@@ -13,7 +20,7 @@ Plan + Design **approved**. **Iterations 0 & 1 COMPLETE.** **Iteration 2 (scoped
 - **Tests** — declarative UI-contract tests (`tests/test_web_ui.py`) + opt-in Playwright browser smoke (`tests/test_smoke_playwright.py`, skips without a browser).
 
 ## Tests
-**243 passing, 1 skipped (Playwright, needs a browser) — 100% of runnable.** No pending (red) specs. Progression this iteration: guard 196 → scope backend 231 → UI + diagnostics 242 → scope menu + fix 243. Full per-step log in `TESTING.md`.
+**279 passing, 1 skipped (Playwright, needs a browser) — 100% of runnable, 98% coverage.** No pending (red) specs. Iteration 3 (platform-scope config + guard vocabulary + relaxed Scope validation, then the `@`-menu composer rewrite) added specs across `test_config.py`/`test_scope.py`/`test_guard.py`/`test_copilot.py`/`test_app.py`/`test_web_ui.py`/`test_smoke_playwright.py` on top of Iteration 2's baseline. Full per-step log in `TESTING.md`.
 
 ## Known gap (deferred)
 "`.env` not loading" was **diagnosed (2026-07-08)** as a config-*contents* issue, not a loader bug: the repo `.env` is the untouched template (`data_source=replay`, creds empty), which is why `/api/status` shows defaults. Added `scripts/check_env.py` (safe diagnostic) + `dotenv_path`/`dotenv_loaded` in `/api/status`. To go live on the laptop: run the diagnostic, set `COPILOT_DATA_SOURCE=datadog` + a Datadog credential + `DATADOG_TENANT_TAG`/`DATADOG_DISCOVERY_METRIC`, restart. Still blocks live scope-discovery validation until done on the laptop.

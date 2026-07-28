@@ -81,8 +81,14 @@ def _is_injection(text: str) -> bool:
     return any(p.search(text) for p in _INJECTION_PATTERNS)
 
 
-def _is_on_topic(text: str) -> bool:
+def _is_on_topic(text: str, extra_vocabulary: tuple[str, ...] = ()) -> bool:
     if any(phrase in text for phrase in _ONTOPIC_PHRASES):
+        return True
+    # Platform-specific terms (metric/log/trace/tenant/environment names from
+    # config) are matched the same way as the generic phrases: a plain substring
+    # check. These are specific enough (dotted metric names, service names) that
+    # a word-boundary regex isn't needed and would fight with dots/hyphens.
+    if any(term.lower() in text for term in extra_vocabulary if term):
         return True
     return _ONTOPIC_WORD_RE.search(text) is not None
 
@@ -94,6 +100,7 @@ def evaluate(
     mode: str = "hybrid",
     max_chars: int = DEFAULT_MAX_CHARS,
     classifier: Callable[[str], bool] | None = None,
+    extra_vocabulary: tuple[str, ...] = (),
 ) -> GuardVerdict:
     """Return a verdict for `message`.
 
@@ -102,6 +109,9 @@ def evaluate(
     "deterministic" (refuse the ambiguous middle without a classifier).
     `classifier(message) -> bool` decides relevance for ambiguous messages; a
     missing classifier or one that raises fails closed (refuse).
+    `extra_vocabulary` = additional on-topic terms (e.g. a platform's known
+    metric/log/trace/tenant/environment names from config) recognized in
+    addition to the generic built-in vocabulary.
     """
     text = (message or "").strip()
 
@@ -115,7 +125,7 @@ def evaluate(
     if _is_injection(low):
         return GuardVerdict(False, "injection", refusal=_REFUSAL)
 
-    if _is_on_topic(low):
+    if _is_on_topic(low, extra_vocabulary):
         return GuardVerdict(True, "ok")
 
     if has_context and len(text.split()) <= _FOLLOWUP_MAX_WORDS:

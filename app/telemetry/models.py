@@ -52,8 +52,11 @@ class TelemetryEvent(BaseModel):
 class Scope(BaseModel):
     """The investigation lens: which environments/tenants to inspect and over what
     window. Persisted per conversation, overridable per message, and translated by
-    each DataSource into its own query filter. At least one of environments/tenants
-    must be selected, and the window is capped at MAX_SCOPE_DAYS.
+    each DataSource into its own query filter. Environments/tenants/duration are
+    all OPTIONAL here — an unset field is filled in by the Copilot from the
+    platform-scope config (see app/config.py) rather than being rejected; this
+    model only rejects a field combination that's internally inconsistent
+    (a lopsided partial duration, or a span over MAX_SCOPE_DAYS).
     """
 
     environments: list[str] = Field(default_factory=list)
@@ -70,10 +73,10 @@ class Scope(BaseModel):
         The 'end ≤ now' rule is intentionally NOT enforced here (it needs the wall
         clock and would make this impure); the API clamps the window to now.
         """
-        if not self.has_selection():
-            return "Select at least one environment or tenant."
         if self.start is None or self.end is None:
-            return "A duration is required."
+            if self.start is not None or self.end is not None:
+                return "Both a start and an end are required for a custom duration."
+            return None  # neither set — the Copilot fills in a default window
         if self.end < self.start:
             return "The end of the range must be after its start."
         if self.end - self.start > timedelta(days=max_days):

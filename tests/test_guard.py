@@ -56,6 +56,29 @@ def test_allows_short_followup_when_investigation_active():
     assert v.allowed and v.category == "ok" and v.used_classifier is False
 
 
+# ---------- platform-specific vocabulary (extra_vocabulary) ----------
+
+def test_extra_vocabulary_recognizes_platform_terms_not_in_generic_list():
+    msg = "How is acme trending on zephyr.orders.count lately?"
+    # Off-topic without the platform vocabulary (no generic word matches either).
+    assert evaluate(msg, mode="deterministic").allowed is False
+    v = evaluate(msg, mode="deterministic",
+                 extra_vocabulary=("acme", "zephyr.orders.count"))
+    assert v.allowed and v.category == "ok" and v.used_classifier is False
+
+
+def test_extra_vocabulary_matching_is_case_insensitive():
+    v = evaluate("Any issues with Globex lately?", mode="deterministic",
+                 extra_vocabulary=("globex",))
+    assert v.allowed and v.category == "ok"
+
+
+def test_extra_vocabulary_does_not_widen_matching_beyond_given_terms():
+    v = evaluate("tell me a joke about cats", mode="deterministic",
+                 extra_vocabulary=("acme", "myplatform.request.latency"))
+    assert v.allowed is False and v.category == "off_topic"
+
+
 def test_short_followup_needs_context():
     # Same terse message with no active investigation is ambiguous, not auto-allowed.
     seen = []

@@ -18,6 +18,12 @@ _SECRET_VARS = [
     "DATADOG_VERIFY_SSL",
     "DATADOG_METRIC_QUERIES",
     "COPILOT_WORKSPACE_DB",
+    "COPILOT_PLATFORM_ENVIRONMENTS",
+    "COPILOT_PLATFORM_TENANTS",
+    "COPILOT_PLATFORM_METRICS",
+    "COPILOT_PLATFORM_LOG_SOURCES",
+    "COPILOT_PLATFORM_TRACE_SERVICES",
+    "COPILOT_PLATFORM_DEFAULT_WINDOW_DAYS",
 ]
 
 
@@ -155,3 +161,40 @@ def test_workspace_db_default_and_override(monkeypatch):
     assert Settings().workspace_db == "data/workspace.db"
     monkeypatch.setenv("COPILOT_WORKSPACE_DB", "/tmp/custom.db")
     assert Settings().workspace_db == "/tmp/custom.db"
+
+
+def test_platform_scope_defaults_empty_and_unconfigured(monkeypatch):
+    _clear(monkeypatch)
+    s = Settings()
+    assert s.platform_environments == ()
+    assert s.platform_tenants == ()
+    assert s.platform_metrics == ()
+    assert s.platform_log_sources == ()
+    assert s.platform_trace_services == ()
+    assert s.platform_default_window_days == 2
+    assert s.has_platform_scope is False
+
+
+def test_platform_scope_parses_comma_separated_lists(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_PLATFORM_ENVIRONMENTS", "production, staging")
+    monkeypatch.setenv("COPILOT_PLATFORM_TENANTS", "acme,globex, ")
+    monkeypatch.setenv("COPILOT_PLATFORM_METRICS", "myplatform.request.latency,myplatform.request.errors")
+    monkeypatch.setenv("COPILOT_PLATFORM_LOG_SOURCES", "myplatform-api")
+    monkeypatch.setenv("COPILOT_PLATFORM_TRACE_SERVICES", "myplatform-api,myplatform-checkout")
+    monkeypatch.setenv("COPILOT_PLATFORM_DEFAULT_WINDOW_DAYS", "5")
+    s = Settings()
+    assert s.platform_environments == ("production", "staging")
+    assert s.platform_tenants == ("acme", "globex")          # blank entries dropped
+    assert s.platform_metrics == ("myplatform.request.latency", "myplatform.request.errors")
+    assert s.platform_log_sources == ("myplatform-api",)
+    assert s.platform_trace_services == ("myplatform-api", "myplatform-checkout")
+    assert s.platform_default_window_days == 5
+    assert s.has_platform_scope is True
+
+
+def test_platform_scope_configured_flag_needs_only_one_list(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_PLATFORM_METRICS", "myplatform.request.latency")
+    assert Settings().has_platform_scope is True
+    assert Settings().status()["platform_scope_configured"] is True

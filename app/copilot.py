@@ -20,11 +20,14 @@ always available.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from app.artifacts import render_artifact
 from app.guard import evaluate as guard_evaluate
 from app.personas import get_persona, render
 from app.reasoning.engine import ReasoningEngine
 from app.telemetry.base import DataSource
+from app.telemetry.models import Scope
 from app.workspace.sections import serialize_sections
 from app.workspace.store import WorkspaceStore
 
@@ -57,6 +60,10 @@ class Copilot:
         guard_mode: str = "hybrid",
         guard_max_chars: int = 2000,
         classifier=None,
+        guard_extra_vocabulary: tuple[str, ...] = (),
+        default_environments: tuple[str, ...] = (),
+        default_tenants: tuple[str, ...] = (),
+        default_window_days: int = 2,
     ) -> None:
         self._source = source
         self._engine = engine
@@ -66,6 +73,10 @@ class Copilot:
         self._guard_mode = guard_mode
         self._guard_max_chars = guard_max_chars
         self._classifier = classifier
+        self._guard_extra_vocabulary = tuple(guard_extra_vocabulary)
+        self._default_environments = tuple(default_environments)
+        self._default_tenants = tuple(default_tenants)
+        self._default_window_days = default_window_days
 
     # --- conversations -----------------------------------------------------
 
@@ -80,8 +91,14 @@ class Copilot:
         return [c.model_dump(mode="json") for c in self._store.list_conversations()]
 
     def list_scopes(self, environments: list[str] | None = None) -> dict[str, list[str]]:
-        """Environments/tenants selectable for the scope dropdowns, from the live
-        data source (tenants narrowed to the selected environments)."""
+        """Environments/tenants selectable for the @ scope menu. When a platform
+        scope is configured (COPILOT_PLATFORM_ENVIRONMENTS/_TENANTS), that fixed,
+        known list is served directly — no live discovery call, and no narrowing
+        by the `environments` filter, since it's already a small known set.
+        Otherwise falls back to the live data source's discovery."""
+        if self._default_environments or self._default_tenants:
+            return {"environments": list(self._default_environments),
+                    "tenants": list(self._default_tenants)}
         return self._source.list_scopes(environments)
 
     def get_conversation(self, cid: str) -> dict:
@@ -118,16 +135,23 @@ class Copilot:
                 mode=self._guard_mode,
                 max_chars=self._guard_max_chars,
                 classifier=self._classifier,
+                extra_vocabulary=self._guard_extra_vocabulary,
             )
             if not verdict.allowed:
                 return self._blocked_view(cid, persona, verdict)
 
         # The investigation lens can change per turn; persist the latest one and
-        # fall back to whatever was last used on this conversation.
+        # fall back to whatever was last used on this conversation. Any field
+        # left unset (no @ selection made) is backfilled from the configured
+        # platform default rather than forcing the user to pick one.
         if scope is not None:
+            scope = self._with_defaults(scope)
             self._store.set_scope(cid, scope)
         else:
             scope = self._store.get_scope(cid)
+            if scope is None:
+                scope = self._with_defaults(None)
+                self._store.set_scope(cid, scope)
 
         # History is the conversation *before* this turn → real follow-up memory.
         history = [(m.role, m.content) for m in self._store.get_messages(cid)]
@@ -167,6 +191,16 @@ class Copilot:
         return {"artifact": doc.model_dump(), "markdown": doc.to_markdown()}
 
     # --- internals ---------------------------------------------------------
+
+    def _with_defaults(self, scope: Scope | None) -> Scope:
+        """Fill any unset field of `scope` (or build one from scratch) from the
+        configured platform default — never errors, never asks the user first."""
+        now = datetime.now(timezone.utc)
+        environments = (scope.environments if scope else []) or list(self._default_environments)
+        tenants = (scope.tenants if scope else []) or list(self._default_tenants)
+        start = (scope.start if scope else None) or (now - timedelta(days=self._default_window_days))
+        end = (scope.end if scope else None) or now
+        return Scope(environments=environments, tenants=tenants, start=start, end=end)
 
     def _blocked_view(self, cid: str, persona_key: str, verdict) -> dict:
         """The reply for a message the guard refused — no reasoning, nothing
@@ -253,12 +287,21 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
     engine = ReasoningEngine(source, llm)
     store = WorkspaceStore(settings.workspace_db)
+    guard_extra_vocabulary = (
+        settings.platform_metrics + settings.platform_log_sources
+        + settings.platform_trace_services + settings.platform_tenants
+        + settings.platform_environments
+    )
     return Copilot(
         source, engine, store,
         incident_id=f"{source.source_type}-session",
         guard_enabled=settings.guard_enabled,
         guard_mode=settings.guard_mode,
         guard_max_chars=settings.guard_max_chars,
+        guard_extra_vocabulary=guard_extra_vocabulary,
+        default_environments=settings.platform_environments,
+        default_tenants=settings.platform_tenants,
+        default_window_days=settings.platform_default_window_days,
     )
 
 
