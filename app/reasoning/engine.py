@@ -9,7 +9,7 @@ The engine is LLM-agnostic (depends only on the LLMClient seam).
 from __future__ import annotations
 
 from app.monitors.index import MonitorsIndex, get_monitors_context
-from app.monitors.resolver import select_metrics
+from app.monitors.resolver import DEFAULT_TOP_K, select_metrics
 from app.reasoning.domain import get_domain_context
 from app.reasoning.evidence import build_evidence_catalog
 from app.reasoning.llm import LLMClient, extract_json
@@ -98,14 +98,23 @@ class ReasoningEngine:
         history: list[tuple[str, str]] | None = None,
         scope: Scope | None = None,
     ) -> Investigation:
-        # With a Terraform-extracted metric registry (hundreds of queries), the
-        # resolver bounds the catalog to the metrics relevant to THIS question;
-        # small registries (replay, infra defaults) keep the query-all behavior.
+        # A large metric registry (Terraform-extracted and/or live-discovered —
+        # 420 metrics on the real org with no Terraform repo at all) must never mean
+        # query-everything: that's one HTTP call per metric per question. The
+        # resolver bounds the catalog to the metrics relevant to THIS question.
+        # Small registries (replay's handful, the infra defaults) stay query-all,
+        # where fetching everything is both cheap and more informative.
+        # A configured Terraform index also triggers resolution regardless of size:
+        # its module vocabulary is what makes evidence *focused* on the service the
+        # question is about, which is a reasoning-quality win, not just a cost one.
+        registry = self._source.list_metrics()
+        has_terraform = bool(self._monitors_index and self._monitors_index.metric_queries)
         selected: list[str] | None = None
-        if self._monitors_index is not None and self._monitors_index.metric_queries:
+        if has_terraform or len(registry) > DEFAULT_TOP_K:
             selected = select_metrics(
-                question or "", history, self._monitors_index,
-                available=set(self._source.list_metrics()),
+                question or "", history,
+                self._monitors_index or MonitorsIndex(monitors=[], dashboards=[], repo_path=""),
+                available=set(registry),
             )
         catalog, context = build_evidence_catalog(self._source, scope, metrics=selected)
         timeline = build_timeline(self._source.get_events(scope=scope))

@@ -172,6 +172,25 @@ def test_scopes_endpoint_lists_environments_and_tenants(wired):
     assert "production" in data["environments"]
 
 
+def test_scopes_endpoint_serves_a_tenants_only_platform_config():
+    # The minimal live config: ~10 tenants listed explicitly, everything else left
+    # blank. /api/scopes must serve exactly those tenants and an empty environment
+    # list (the @ menu then hides the Environment dimension entirely) — and must
+    # NOT fall through to live discovery.
+    source = ReplayAdapter()
+    engine = ReasoningEngine(source, _FakeLLM({"summary": "", "facts": []}))
+    app.state.copilot = Copilot(
+        source, engine, WorkspaceStore(":memory:"), incident_id="t",
+        default_tenants=("tenant-a", "tenant-b", "tenant-c"),
+    )
+    try:
+        data = client.get("/api/scopes").json()
+        assert data["tenants"] == ["tenant-a", "tenant-b", "tenant-c"]
+        assert data["environments"] == []
+    finally:
+        app.state.copilot = None
+
+
 def test_rename_conversation_endpoint(wired):
     cid = _new_conversation()
     r = client.patch(f"/api/conversations/{cid}", json={"title": "Checkout incident"})

@@ -28,6 +28,7 @@ from app.personas import get_persona, render
 from app.reasoning.engine import ReasoningEngine
 from app.telemetry.base import DataSource
 from app.telemetry.models import Scope
+from app.telemetry.namespaces import filter_queries, parse_patterns
 from app.workspace.sections import serialize_sections
 from app.workspace.store import WorkspaceStore
 
@@ -263,7 +264,7 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     backend is available (no API key and no `claude` CLI) so the app degrades
     gracefully without crashing. `cli_available` is injectable for tests."""
     from app.guard_classifier import classify_relevance
-    from app.monitors.index import build_monitors_index
+    from app.monitors.index import build_monitors_index, service_vocabulary
     from app.reasoning.llm import cli_available as _detect_cli
 
     if cli_available is None:
@@ -274,8 +275,10 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
         return None
 
     # Monitors knowledge base (empty when MONITORS_REPO_PATH is unset/missing).
-    # Built before the source so extracted metric queries can feed the adapter.
-    monitors_index = build_monitors_index(settings.monitors_repo_path)
+    # Built before the source so extracted metric queries can feed the adapter, and
+    # scoped to the same metric namespaces the adapter is scoped to.
+    monitors_index = build_monitors_index(
+        settings.monitors_repo_path, namespaces=settings.datadog_metric_namespaces)
 
     source = _build_source(settings, monitors_index.metric_queries)
     if backend == "sdk":
@@ -293,10 +296,15 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
     engine = ReasoningEngine(source, llm, monitors_index=monitors_index)
     store = WorkspaceStore(settings.workspace_db)
+    # On-topic vocabulary: the hand-listed COPILOT_PLATFORM_* terms PLUS the service
+    # phrases implied by the metrics actually in scope ("ec.quota_manager.x" ->
+    # "quota manager"). That second half is what lets a namespace like `ec.*` make
+    # hundreds of real service names on-topic with no extra configuration.
     guard_extra_vocabulary = (
         settings.platform_metrics + settings.platform_log_sources
         + settings.platform_trace_services + settings.platform_tenants
         + settings.platform_environments
+        + service_vocabulary(source.list_metrics())
     )
 
     # Stage-2 guard classifier: semantic relevance via the fast model. Errors
@@ -319,29 +327,76 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
 
 def merged_metric_queries(
-    extracted: dict[str, str] | None, configured: dict[str, str] | None
+    extracted: dict[str, str] | None,
+    configured: dict[str, str] | None,
+    discovered: dict[str, str] | None = None,
+    namespaces: tuple[str, ...] = (),
 ) -> dict[str, str] | None:
-    """Combine the Terraform-extracted metric map with the explicit
-    DATADOG_METRIC_QUERIES config. Precedence: configured > extracted; None
-    when both are empty (the adapter then uses its built-in infra defaults)."""
-    merged = {**(extracted or {}), **(configured or {})}
+    """Combine every source of metric queries into the adapter's registry.
+
+    Precedence **configured > extracted > discovered**: an explicit
+    DATADOG_METRIC_QUERIES entry always wins; a Terraform-extracted query beats a
+    live-discovered one because it carries the real aggregation (`sum:` /
+    `.as_count()`) rather than a generic default.
+
+    **Extracted metrics must be confirmed reporting.** When discovery returned
+    anything at all, a metric found in the Terraform repo but absent from the live
+    list is dropped: the `.tf` files describe monitors that may reference metrics
+    no longer emitted (verified live 2026-08-05 — one such metric returned zero
+    series and zero tags), and a metric that cannot return data has no business
+    being selectable as evidence. When discovery returned nothing (it failed, or
+    isn't configured) the full extracted set survives — that's the graceful
+    degradation path, not a reason to empty the registry.
+
+    The result is then narrowed to `namespaces` (DATADOG_METRIC_NAMESPACES) — an
+    allowlist, so nothing outside the configured scope can be queried — except
+    names you configured explicitly, which are a deliberate override.
+
+    Returns None only when NO namespaces are configured and nothing was found, so
+    the adapter falls back to its built-in infra defaults. With namespaces set the
+    result is always a dict (possibly empty): "only these are in scope" must never
+    silently reintroduce `system.*`.
+    """
+    discovered = dict(discovered or {})
+    extracted = dict(extracted or {})
+    if discovered:
+        extracted = {n: q for n, q in extracted.items() if n in discovered}
+    merged = {**discovered, **extracted, **(configured or {})}
+    if namespaces:
+        return filter_queries(merged, parse_patterns(namespaces), keep=(configured or {}))
     return merged or None
 
 
 def _build_source(settings, extracted_metric_queries: dict[str, str] | None = None) -> DataSource:
     if settings.data_source == "datadog" and settings.has_datadog:
-        from app.telemetry.datadog import LiveDatadogAdapter
+        from app.telemetry.datadog import (
+            LiveDatadogAdapter,
+            discover_metric_names,
+            discovered_queries,
+        )
 
+        credentials = {
+            "api_key": settings.datadog_api_key,
+            "app_key": settings.datadog_app_key,
+            "access_token": settings.datadog_access_token,
+            "site": settings.datadog_site,
+            "verify": settings.datadog_verify,
+        }
+        # Ask the org which metrics under the configured namespaces are actually
+        # reporting. Best-effort: a failure here yields {} and the registry falls
+        # back to whatever Terraform gave us.
+        namespaces = settings.datadog_metric_namespaces
+        discovered = discovered_queries(discover_metric_names(namespaces, **credentials))
         return LiveDatadogAdapter(
-            api_key=settings.datadog_api_key,
-            app_key=settings.datadog_app_key,
-            access_token=settings.datadog_access_token,
-            site=settings.datadog_site,
             tenant_tag=settings.datadog_tenant_tag,
-            discovery_metric=settings.datadog_discovery_metric,
+            env_tag=settings.datadog_env_tag,
             metric_queries=merged_metric_queries(
-                extracted_metric_queries, settings.datadog_metric_queries),
-            verify=settings.datadog_verify,
+                extracted_metric_queries,
+                settings.datadog_metric_queries,
+                discovered=discovered,
+                namespaces=namespaces,
+            ),
+            **credentials,
         )
     from app.telemetry.replay import ReplayAdapter
 

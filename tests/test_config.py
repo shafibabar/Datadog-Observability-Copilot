@@ -17,6 +17,10 @@ _SECRET_VARS = [
     "DATADOG_CA_BUNDLE",
     "DATADOG_VERIFY_SSL",
     "DATADOG_METRIC_QUERIES",
+    "DATADOG_METRIC_NAMESPACES",
+    "DATADOG_TENANT_TAG",
+    "DATADOG_ENV_TAG",
+    "MONITORS_REPO_PATH",
     "COPILOT_WORKSPACE_DB",
     "COPILOT_PLATFORM_ENVIRONMENTS",
     "COPILOT_PLATFORM_TENANTS",
@@ -198,3 +202,47 @@ def test_platform_scope_configured_flag_needs_only_one_list(monkeypatch):
     monkeypatch.setenv("COPILOT_PLATFORM_METRICS", "myplatform.request.latency")
     assert Settings().has_platform_scope is True
     assert Settings().status()["platform_scope_configured"] is True
+
+
+def test_metric_namespaces_default_to_none(monkeypatch):
+    _clear(monkeypatch)
+    assert Settings().datadog_metric_namespaces == ()
+
+
+def test_metric_namespaces_parse_a_comma_separated_wildcard_list(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_METRIC_NAMESPACES", "ec.*, ea.*")
+    assert Settings().datadog_metric_namespaces == ("ec.*", "ea.*")
+
+
+def test_metric_namespaces_appear_in_status(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_METRIC_NAMESPACES", "ec.*")
+    assert Settings().status()["metric_namespaces"] == ["ec.*"]
+
+
+def test_scope_tag_keys_default_to_the_conventional_names(monkeypatch):
+    _clear(monkeypatch)
+    s = Settings()
+    assert s.datadog_tenant_tag == "tenant"
+    assert s.datadog_env_tag == "env"
+
+
+def test_scope_tag_keys_are_both_configurable(monkeypatch):
+    # Verified live: this org has no `env` tag; environment is `kube_namespace`.
+    _clear(monkeypatch)
+    monkeypatch.setenv("DATADOG_ENV_TAG", "kube_namespace")
+    monkeypatch.setenv("DATADOG_TENANT_TAG", "tenant")
+    s = Settings()
+    assert s.datadog_env_tag == "kube_namespace"
+    assert s.datadog_tenant_tag == "tenant"
+    assert s.status()["env_tag"] == "kube_namespace"
+    assert s.status()["tenant_tag"] == "tenant"
+
+
+def test_the_old_discovery_metric_setting_is_gone(monkeypatch):
+    # DATADOG_DISCOVERY_METRIC was a single infra metric (system.cpu.user) used
+    # only to enumerate tag values. It's retired: tag discovery now uses an
+    # in-scope metric, and metric scope comes from DATADOG_METRIC_NAMESPACES.
+    _clear(monkeypatch)
+    assert not hasattr(Settings(), "datadog_discovery_metric")

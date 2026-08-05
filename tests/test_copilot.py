@@ -17,15 +17,19 @@ import pytest
 
 from app.config import Settings
 from app.copilot import Copilot, _build_source, build_copilot
+from app.monitors.index import MonitorsIndex
 from app.reasoning.engine import ReasoningEngine
 from app.reasoning.evidence import build_evidence_catalog
 from app.telemetry.datadog import LiveDatadogAdapter
 from app.telemetry.replay import ReplayAdapter
 from app.workspace.store import WorkspaceStore
 
+# Cleared before each factory test so a real .env on the machine running the suite
+# (the demo laptop HAS these set) can never leak in and change the outcome.
 _DEFAULT_ENV = [
     "ANTHROPIC_API_KEY", "DATADOG_API_KEY", "DATADOG_APP_KEY", "DATADOG_ACCESS_TOKEN",
     "COPILOT_DATA_SOURCE", "COPILOT_WORKSPACE_DB", "COPILOT_LLM_BACKEND",
+    "DATADOG_METRIC_NAMESPACES", "DATADOG_METRIC_QUERIES", "MONITORS_REPO_PATH",
 ]
 
 
@@ -417,3 +421,89 @@ def test_build_source_falls_back_to_replay_when_keys_missing(monkeypatch):
     _clear(monkeypatch)
     monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
     assert isinstance(_build_source(Settings()), ReplayAdapter)
+
+
+# --- DATADOG_METRIC_NAMESPACES end to end ----------------------------------
+
+def _fake_discovery(monkeypatch, names):
+    """Stub live metric-name discovery so no test ever touches the network."""
+    from app.telemetry import datadog as dd
+
+    monkeypatch.setattr(dd, "discover_metric_names", lambda patterns, **kw: list(names))
+
+
+def _datadog_env(monkeypatch, namespaces="ec.*"):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
+    monkeypatch.setenv("DATADOG_ACCESS_TOKEN", "pat-xyz")
+    monkeypatch.setenv("DATADOG_METRIC_NAMESPACES", namespaces)
+
+
+def test_build_source_registry_is_the_discovered_namespaced_metrics(monkeypatch):
+    _datadog_env(monkeypatch)
+    _fake_discovery(
+        monkeypatch,
+        # …latency.max is a Datadog-generated sub-metric and must not enter the registry.
+        ["ec.quota_manager.processed_counter", "ec.review_service.latency",
+         "ec.review_service.latency.max"],
+    )
+    source = _build_source(Settings())
+    assert source.list_metrics() == [
+        "ec.quota_manager.processed_counter", "ec.review_service.latency"]
+
+
+def test_build_source_drops_metrics_outside_the_namespaces(monkeypatch):
+    # Even if a source hands back something off-namespace, the allowlist wins.
+    _datadog_env(monkeypatch)
+    _fake_discovery(monkeypatch, ["ec.a", "system.cpu.user"])
+    assert _build_source(Settings()).list_metrics() == ["ec.a"]
+
+
+def test_namespaced_registry_never_falls_back_to_infra_defaults(monkeypatch):
+    # Discovery failed / found nothing: "only ec.* is in scope" must NOT quietly
+    # become "here are four system.* metrics instead".
+    _datadog_env(monkeypatch)
+    _fake_discovery(monkeypatch, [])
+    assert _build_source(Settings()).list_metrics() == []
+
+
+def test_without_namespaces_the_infra_defaults_still_apply(monkeypatch):
+    # Unconfigured behavior is unchanged.
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
+    monkeypatch.setenv("DATADOG_ACCESS_TOKEN", "pat-xyz")
+    assert "system.cpu.user" in _build_source(Settings()).list_metrics()
+
+
+def test_explicit_metric_queries_survive_the_namespace_filter(monkeypatch):
+    _datadog_env(monkeypatch)
+    monkeypatch.setenv("DATADOG_METRIC_QUERIES", '{"trace.latency":"p95:trace.latency{*}"}')
+    _fake_discovery(monkeypatch, ["ec.a"])
+    assert _build_source(Settings()).list_metrics() == ["ec.a", "trace.latency"]
+
+
+def test_build_copilot_guard_vocabulary_learns_service_names_from_the_registry(monkeypatch):
+    # The point: with ~500 ec.* metrics in scope, questions naming a real service
+    # pass the guard WITHOUT anyone filling in COPILOT_PLATFORM_METRICS by hand.
+    _datadog_env(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
+    _fake_discovery(monkeypatch, ["ec.quota_manager.pipeline_processed_counter"])
+    cp = build_copilot(Settings())
+    assert "quota manager" in cp._guard_extra_vocabulary
+
+
+def test_build_copilot_passes_namespaces_to_the_terraform_extractor(monkeypatch):
+    seen = {}
+
+    def fake_index(repo_path="", namespaces=()):
+        seen["namespaces"] = namespaces
+        return MonitorsIndex(monitors=[], dashboards=[], repo_path="")
+
+    _clear(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
+    monkeypatch.setenv("DATADOG_METRIC_NAMESPACES", "ec.*, ea.*")
+    monkeypatch.setattr("app.monitors.index.build_monitors_index", fake_index)
+    build_copilot(Settings())
+    assert seen["namespaces"] == ("ec.*", "ea.*")

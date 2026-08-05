@@ -150,11 +150,12 @@ function renderAtMenu() {
   atMenu.innerHTML = "";
   if (atView === "root") {
     const list = document.createElement("div"); list.className = "scope-list";
-    list.append(
-      optRow("Environment", () => { atView = "env"; renderAtMenu(); }),
-      optRow("Tenant", () => { atView = "tenant"; renderAtMenu(); }),
-      optRow("Duration", () => { atView = "duration"; renderAtMenu(); }),
-    );
+    // Only offer a dimension we actually have values for — a configured platform
+    // may list tenants but no environments, and an empty submenu is a dead end.
+    // Duration always applies; it needs nothing discovered.
+    if (envOptions.length) list.append(optRow("Environment", () => { atView = "env"; renderAtMenu(); }));
+    if (tenantOptions.length) list.append(optRow("Tenant", () => { atView = "tenant"; renderAtMenu(); }));
+    list.append(optRow("Duration", () => { atView = "duration"; renderAtMenu(); }));
     atMenu.append(list);
     return;
   }

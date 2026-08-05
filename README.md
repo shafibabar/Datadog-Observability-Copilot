@@ -252,21 +252,64 @@ PAT is also set, the PAT takes precedence.
 
 > Set `DATADOG_SITE` to your region (`datadoghq.com`, `datadoghq.eu`, `us3.datadoghq.com`, …).
 
+### Which metrics are in scope (`DATADOG_METRIC_NAMESPACES`)
+A real org has thousands of metrics; the Copilot should only ever see the platform you're
+investigating. One setting decides that — a comma-separated list of **wildcard patterns**:
+```
+DATADOG_METRIC_NAMESPACES=ec.*
+# or several namespaces:
+DATADOG_METRIC_NAMESPACES=ec.*, ea.*
+```
+It is an **allowlist**, and it drives three things at once:
+
+1. **Live discovery** — the app asks Datadog which metrics are actively reporting and keeps
+   the ones matching your patterns. This is how `ec.*` becomes a registry of hundreds of
+   metrics without you listing any of them. (On a real org: 16,117 metric names total,
+   1,297 matching `ec.*`.)
+2. **Terraform extraction** — the monitors-repo scan (`MONITORS_REPO_PATH`) looks for these
+   same namespaces, and its queries win over discovered ones because they carry the real
+   aggregation (`sum:` … `.as_count()`).
+3. **Relevance guard vocabulary** — service names implied by the in-scope metrics
+   (`ec.quota_manager.…` → "quota manager") automatically count as on-topic, so you don't
+   have to list them in `COPILOT_PLATFORM_METRICS`.
+
+Two things are filtered out of the registry so the Copilot only ever cites evidence that
+actually exists:
+
+- **Datadog's generated sub-metrics** (`.count`, `.sum`, `.min`, `.max`, `.avg`,
+  `.median`, `.95percentile`, …). Every distribution metric produces a handful of these,
+  so one logical signal shows up as five names. The base metric stays and is queryable
+  with any aggregation; this is the difference between "1,297 names" and "~500 distinct
+  signals".
+- **Metrics that aren't reporting.** A monitor in your `.tf` files can reference a metric
+  that no longer emits. Whenever live discovery succeeds, a Terraform-extracted metric
+  must also appear in the live list to stay in the registry — otherwise a question could
+  resolve to it and produce an investigation with no supporting telemetry. If discovery
+  fails, the full Terraform set is used instead, so an outage degrades rather than empties.
+
+A large registry does **not** mean large queries: each question resolves to the top-8
+relevant metrics before anything is fetched. Leave the setting blank to keep the old
+behavior (no filtering; broadly-present infra defaults). Metrics you name explicitly in
+`DATADOG_METRIC_QUERIES` bypass every filter above — namespace, sub-metric and
+confirmed-reporting alike.
+
 ### Scope dropdowns (Environment / Tenant)
-The scope menu populates its **Environment** and **Tenant** lists from your org. `env` is
-Datadog's standard environment tag; **"tenant" is not a native Datadog concept**, so tell
-the app which tag key represents it (your org may call it `tenant`, `customer`, `account`, …):
+`env` is Datadog's standard environment tag; **"tenant" is not a native Datadog concept**, so
+tell the app which tag key represents it (your org may call it `tenant`, `customer`,
+`account`, `kube_namespace`, …):
 ```
 DATADOG_TENANT_TAG=tenant
-DATADOG_DISCOVERY_METRIC=system.cpu.user
 ```
-`DATADOG_DISCOVERY_METRIC` is a widely-emitted metric the app queries **only** to list the
-distinct env/tenant tag values for the dropdowns — it must be a metric that actually carries
-those tags in your org. If the dropdowns come up empty, point it at one that does.
+The `@` menu's **Environment** and **Tenant** lists come from `COPILOT_PLATFORM_ENVIRONMENTS`
+and `COPILOT_PLATFORM_TENANTS` (see the next section) when you set them — the simplest and
+most predictable option. Only if you leave those blank does the app enumerate values live, by
+grouping an in-scope metric by the tag. A dimension with no values is hidden from the menu
+rather than shown as an empty list, so listing only tenants is a perfectly valid setup.
 
-> **Not yet validated live.** The live env/tenant discovery and scoped queries are currently
-> tested only against mocked Datadog responses; the exact query/tag shapes should be confirmed
-> against a real org (tracked in `docs/context/OPEN-QUESTIONS.md`).
+> **Not yet validated live.** Live metric-name discovery, env/tenant discovery, and scoped
+> queries are currently tested only against mocked Datadog responses; the exact request and
+> response shapes should be confirmed against a real org with
+> `python scripts/datadog_probe.py` (tracked in `docs/context/OPEN-QUESTIONS.md`).
 
 ### Confirm your configuration
 Not sure whether the app is actually seeing your settings? Run the safe diagnostic (it
@@ -361,8 +404,14 @@ they are the authoritative, version-controlled source of truth for where things 
 - **The scope dropdowns are empty / it still says `replay` with Datadog set** — the app
   isn't resolving your Datadog config. Run `python scripts/check_env.py` to see exactly
   what's set and what's missing (it never prints secret values). Common causes: you edited
-  `.env.example` instead of `.env`, `COPILOT_DATA_SOURCE` isn't `datadog`, the credential
-  is blank, or `DATADOG_DISCOVERY_METRIC` doesn't carry your env/tenant tags. Restart after
-  editing `.env`.
+  `.env.example` instead of `.env`, `COPILOT_DATA_SOURCE` isn't `datadog`, or the credential
+  is blank. Restart after editing `.env`. The most reliable fix for the dropdowns is to list
+  the values explicitly in `COPILOT_PLATFORM_TENANTS` / `COPILOT_PLATFORM_ENVIRONMENTS`.
+- **The Copilot has no metrics / cites no `met:` evidence** — nothing resolved into the
+  metric registry. Run `python scripts/datadog_probe.py`: step 2 prints how many metric
+  names your org returns, how many are in scope, and **which namespaces actually exist in
+  your org** — so you can see whether your patterns match reality. Patterns are matched
+  case-insensitively, and `ec`, `ec.` and `ec.*` all mean the same thing.
+  `python scripts/check_env.py` shows the offline Terraform-extracted count.
 - **The Copilot declines an off-topic question** — that's the relevance guard. Ask about
   system health, telemetry, deploys, errors, or an incident and it will investigate.

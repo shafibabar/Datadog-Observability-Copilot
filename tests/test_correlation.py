@@ -5,10 +5,10 @@ alias vocabulary (index), deterministic metric selection (resolver), the
 bounded evidence catalog (`metrics=` param), and the adapter merge precedence.
 Everything runs offline against fixtures and fakes.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.copilot import merged_metric_queries
-from app.monitors.index import MonitorsIndex, build_monitors_index
+from app.monitors.index import MonitorsIndex, build_monitors_index, service_vocabulary
 from app.monitors.resolver import DEFAULT_TOP_K, select_metrics
 from app.reasoning.evidence import build_evidence_catalog
 from app.telemetry.base import DataSource
@@ -196,6 +196,28 @@ def test_engine_without_registry_keeps_query_all(tmp_path):
     assert source.queried == [_DLT, _PROCESSED]
 
 
+def test_engine_bounds_a_large_registry_even_with_no_monitors_index():
+    # The live shape: 420 discovered metrics, no Terraform repo. Querying them all
+    # would be 420 HTTP calls per question.
+    from app.reasoning.engine import ReasoningEngine
+
+    big = sorted(f"ec.svc{i}.processed_counter" for i in range(50))
+    source = RecordingSource(big)
+    engine = ReasoningEngine(source, _StubLLM(), monitors_index=None)
+    engine.investigate("how many are being processed?")
+    assert 0 < len(source.queried) <= DEFAULT_TOP_K
+
+
+def test_engine_bounds_a_large_registry_with_an_empty_monitors_index():
+    from app.reasoning.engine import ReasoningEngine
+
+    big = sorted(f"ec.svc{i}.processed_counter" for i in range(50))
+    source = RecordingSource(big)
+    engine = ReasoningEngine(source, _StubLLM(), monitors_index=_EMPTY_INDEX)
+    engine.investigate("anything at all")
+    assert 0 < len(source.queried) <= DEFAULT_TOP_K
+
+
 # --- adapter merge precedence ------------------------------------------------------
 
 def test_merge_precedence_configured_over_extracted():
@@ -208,3 +230,267 @@ def test_merge_precedence_configured_over_extracted():
 def test_merge_empty_yields_none_for_adapter_defaults():
     assert merged_metric_queries(None, None) is None
     assert merged_metric_queries({}, {}) is None
+
+
+# --- namespace-scoped extraction (DATADOG_METRIC_NAMESPACES) ----------------------
+
+_EA_TF = '''
+widget {
+  query = "avg:ea.review_service.request_latency{*}"
+}
+'''
+
+_EA_METRIC = "ea.review_service.request_latency"
+
+
+def _multi_namespace_repo(tmp_path):
+    """The ec.* fixture tree plus one module emitting an ea.* metric."""
+    _fixture_repo(tmp_path)
+    extra = tmp_path / "modules" / "ea_review_service_dashboard"
+    extra.mkdir(parents=True)
+    (extra / "dashboard.tf").write_text(_EA_TF)
+    return str(tmp_path)
+
+
+def test_extraction_defaults_to_the_ec_namespace(tmp_path):
+    # No namespaces configured → today's behavior exactly: ec.* only.
+    index = build_monitors_index(_multi_namespace_repo(tmp_path))
+    assert _PROCESSED in index.metric_queries
+    assert _EA_METRIC not in index.metric_queries
+
+
+def test_configured_namespaces_widen_extraction_to_each_prefix(tmp_path):
+    index = build_monitors_index(
+        _multi_namespace_repo(tmp_path), namespaces=("ec.*", "ea.*"))
+    assert index.metric_queries[_EA_METRIC] == f"avg:{_EA_METRIC}{{*}}"
+    assert _PROCESSED in index.metric_queries          # ec.* still extracted
+
+
+def test_a_narrowed_namespace_excludes_the_other_prefix(tmp_path):
+    index = build_monitors_index(_multi_namespace_repo(tmp_path), namespaces=("ea.*",))
+    assert _EA_METRIC in index.metric_queries
+    assert _PROCESSED not in index.metric_queries
+
+
+def test_extracted_ea_metrics_get_service_aliases_too(tmp_path):
+    # The alias vocabulary is what lets a user say "review service" — it must be
+    # derived for every configured namespace, not just ec.
+    index = build_monitors_index(
+        _multi_namespace_repo(tmp_path), namespaces=("ec.*", "ea.*"))
+    assert index.aliases["review service"] == [_EA_METRIC]
+
+
+# --- namespace filtering in the adapter merge ------------------------------------
+
+def test_merge_filters_out_metrics_outside_the_namespaces():
+    # ec.a is listed as discovered too, so it survives the confirmed-reporting rule
+    # and this test isolates namespace filtering (system.cpu.user must go).
+    merged = merged_metric_queries(
+        {"ec.a": "sum:ec.a{*}"},
+        None,
+        discovered={"ec.a": "avg:ec.a{*}", "ea.b": "avg:ea.b{*}",
+                    "system.cpu.user": "avg:system.cpu.user{*}"},
+        namespaces=("ec.*", "ea.*"),
+    )
+    assert set(merged) == {"ec.a", "ea.b"}
+
+
+def test_merge_precedence_is_configured_then_extracted_then_discovered():
+    merged = merged_metric_queries(
+        {"ec.a": "sum:ec.a{*}", "ec.b": "sum:ec.b{*}"},
+        {"ec.a": "avg:ec.a{env:prod}"},
+        discovered={"ec.a": "avg:ec.a{*}", "ec.b": "avg:ec.b{*}", "ec.c": "avg:ec.c{*}"},
+        namespaces=("ec.*",),
+    )
+    # configured wins outright; extracted keeps its real aggregation over the
+    # generic discovered one; discovered contributes only what nothing else has.
+    assert merged == {
+        "ec.a": "avg:ec.a{env:prod}",
+        "ec.b": "sum:ec.b{*}",
+        "ec.c": "avg:ec.c{*}",
+    }
+
+
+def test_explicitly_configured_metrics_survive_the_namespace_filter():
+    merged = merged_metric_queries(
+        None, {"system.cpu.user": "avg:system.cpu.user{*}"}, namespaces=("ec.*",))
+    assert merged == {"system.cpu.user": "avg:system.cpu.user{*}"}
+
+
+def test_service_vocabulary_derives_guard_terms_from_metric_names():
+    assert service_vocabulary([
+        "ec.quota_manager.pipeline_processed_counter",
+        "ec.surveillance_policy_evaluator.error_counter",
+    ]) == ("policy evaluator", "quota manager", "surveillance policy evaluator")
+
+
+def test_service_vocabulary_drops_segments_too_short_to_match_safely():
+    # Guard vocabulary is SUBSTRING-matched, so a 1-2 character term would appear
+    # in nearly every message and fast-allow everything, disabling the guard.
+    assert service_vocabulary(["ec.a.b", "ec.qm.count", "ec.audit.count"]) == ("audit",)
+
+
+def test_service_vocabulary_ignores_names_with_no_service_segment():
+    assert service_vocabulary(["ec", "flat_name"]) == ()
+
+
+# --- the resolver must work from the LIVE registry, not only Terraform ----------
+# Verified live 2026-08-05: with MONITORS_REPO_PATH unset, discovery alone yields a
+# 420-metric registry while the Terraform index is empty. The resolver used to bail
+# on an empty index, which meant (a) zero metric evidence and (b) the engine falling
+# back to query-everything — 420 HTTP calls per question.
+
+_EMPTY_INDEX = MonitorsIndex(monitors=[], dashboards=[], repo_path="")
+
+_LIVE_REGISTRY = {
+    "ec.alerting_service.alert_published_counter",
+    "ec.alerting_service.alert_outbox_event_error_counter",
+    "ec.quota_manager.pipeline_processed_counter",
+    "ec.quota_manager.pipeline_dlt_counter",
+    "ec.review_service.request_latency",
+    "ec.indexer.documents_indexed_rate",
+}
+
+
+def test_resolver_matches_service_phrases_derived_from_live_metric_names():
+    # "alerting service" is never mentioned in any .tf file here — it comes from
+    # the metric names themselves.
+    picked = select_metrics(
+        "any errors in the alerting service?", None, _EMPTY_INDEX, available=_LIVE_REGISTRY)
+    # The alias match outranks incidental token overlap ("service" appears in
+    # ec.review_service.* too), so the alerting metrics come first.
+    assert picked[:2] == [
+        "ec.alerting_service.alert_outbox_event_error_counter",
+        "ec.alerting_service.alert_published_counter",
+    ]
+
+
+def test_resolver_matches_token_overlap_against_live_metric_names():
+    picked = select_metrics(
+        "what is the request latency?", None, _EMPTY_INDEX, available=_LIVE_REGISTRY)
+    assert "ec.review_service.request_latency" in picked
+
+
+def test_resolver_falls_back_to_a_golden_set_from_the_live_registry():
+    picked = select_metrics(
+        "is everything healthy?", None, _EMPTY_INDEX, available=_LIVE_REGISTRY)
+    assert picked, "a vague question must still get real telemetry"
+    assert len(picked) <= DEFAULT_TOP_K
+
+
+def test_resolver_with_no_available_metrics_selects_nothing():
+    assert select_metrics("anything", None, _EMPTY_INDEX, available=set()) == []
+
+
+def test_resolver_never_returns_more_than_k():
+    big = {f"ec.svc{i}.processed_counter" for i in range(50)}
+    assert len(select_metrics("processed", None, _EMPTY_INDEX, available=big)) <= DEFAULT_TOP_K
+
+
+# --- extracted metrics must be confirmed reporting -------------------------------
+# The live probe found ec.centralised_audit.communication_event_dlt_counter in the
+# .tf files but NOT reporting (0 series, 0 tags). A metric that can't return data
+# must not sit in the registry where the resolver can pick it and produce an
+# investigation with no supporting telemetry.
+
+def test_extracted_metric_confirmed_by_discovery_keeps_its_real_aggregation():
+    merged = merged_metric_queries(
+        {"ec.a": "sum:ec.a{*}.as_count()"},
+        None,
+        discovered={"ec.a": "avg:ec.a{*}"},
+        namespaces=("ec.*",),
+    )
+    assert merged == {"ec.a": "sum:ec.a{*}.as_count()"}
+
+
+def test_extracted_metric_not_reporting_is_dropped():
+    merged = merged_metric_queries(
+        {"ec.dead": "sum:ec.dead{*}.as_count()", "ec.live": "sum:ec.live{*}"},
+        None,
+        discovered={"ec.live": "avg:ec.live{*}"},
+        namespaces=("ec.*",),
+    )
+    assert set(merged) == {"ec.live"}
+
+
+def test_when_discovery_returns_nothing_the_full_extracted_set_survives():
+    # Discovery failing (or being unconfigured) must not empty the registry —
+    # that's the graceful-degradation path.
+    extracted = {"ec.a": "sum:ec.a{*}", "ec.b": "sum:ec.b{*}"}
+    assert merged_metric_queries(
+        extracted, None, discovered={}, namespaces=("ec.*",)) == extracted
+    assert merged_metric_queries(
+        extracted, None, discovered=None, namespaces=("ec.*",)) == extracted
+
+
+def test_configured_metrics_never_need_confirming():
+    # An explicit DATADOG_METRIC_QUERIES entry is the human overriding us.
+    merged = merged_metric_queries(
+        None,
+        {"ec.pinned": "sum:ec.pinned{*}"},
+        discovered={"ec.other": "avg:ec.other{*}"},
+        namespaces=("ec.*",),
+    )
+    assert merged["ec.pinned"] == "sum:ec.pinned{*}"
+
+
+def test_merge_drops_statistical_sub_metrics_from_the_registry():
+    merged = merged_metric_queries(
+        None, None,
+        discovered={
+            "ec.svc.latency": "avg:ec.svc.latency{*}",
+            "ec.svc.latency.count": "avg:ec.svc.latency.count{*}",
+            "ec.svc.latency.max": "avg:ec.svc.latency.max{*}",
+        },
+        namespaces=("ec.*",),
+    )
+    assert set(merged) == {"ec.svc.latency"}
+
+
+def test_merge_returns_none_when_the_filter_empties_the_registry():
+    # None means "adapter defaults" — but with namespaces set the adapter must NOT
+    # fall back to system.* defaults, so it has to be able to see an empty result.
+    assert merged_metric_queries(
+        {"system.cpu.user": "avg:system.cpu.user{*}"}, None, namespaces=("ec.*",)) == {}
+
+
+# --- timeline bounding ------------------------------------------------------------
+# A live org returns ~1000 monitor events an hour (measured 2026-08-05), which made
+# the workspace's "Timeline of Events" section a 1000-row list on every reply.
+
+def test_timeline_is_bounded_and_prefers_significant_events():
+    from app.telemetry.models import EventSource, Severity, TelemetryEvent
+    from app.reasoning.timeline import MAX_TIMELINE_EVENTS, build_timeline
+
+    base = datetime(2026, 8, 5, tzinfo=timezone.utc)
+    noise = [
+        TelemetryEvent(id=f"i{n}", timestamp=base + timedelta(minutes=n),
+                       source=EventSource.METRIC, title="routine", severity=Severity.INFO)
+        for n in range(400)
+    ]
+    alerts = [
+        TelemetryEvent(id=f"c{n}", timestamp=base + timedelta(minutes=500 + n),
+                       source=EventSource.METRIC, title="alert", severity=Severity.CRITICAL)
+        for n in range(5)
+    ]
+    out = build_timeline(noise + alerts)
+    assert len(out) == MAX_TIMELINE_EVENTS
+    # Every critical event survives the trim...
+    assert {e.id for e in alerts} <= {e.id for e in out}
+    # ...and the result is still chronological.
+    assert [e.timestamp for e in out] == sorted(e.timestamp for e in out)
+
+
+def test_a_small_timeline_is_returned_whole():
+    from app.telemetry.models import EventSource, Severity, TelemetryEvent
+    from app.reasoning.timeline import build_timeline
+
+    base = datetime(2026, 8, 5, tzinfo=timezone.utc)
+    events = [
+        TelemetryEvent(id=str(n), timestamp=base + timedelta(minutes=-n),
+                       source=EventSource.METRIC, title="t", severity=Severity.INFO)
+        for n in range(5)
+    ]
+    out = build_timeline(events)
+    assert len(out) == 5
+    assert [e.timestamp for e in out] == sorted(e.timestamp for e in out)

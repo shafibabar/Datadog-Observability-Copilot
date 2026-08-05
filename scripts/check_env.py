@@ -30,6 +30,28 @@ def _parse(text: str) -> dict[str, str]:
     return out
 
 
+def _report_registry(s) -> None:
+    """How many metrics the configured namespaces actually resolve to, offline.
+
+    Only the local Terraform scan runs here — this script never touches the
+    network. Live metric-name discovery happens when the app starts; use
+    scripts/datadog_probe.py to see what your org returns for it.
+    """
+    from app.monitors.index import build_monitors_index
+
+    if not s.monitors_repo_path:
+        print("  terraform metrics    : (MONITORS_REPO_PATH not set — no local scan)")
+        return
+    index = build_monitors_index(s.monitors_repo_path, namespaces=s.datadog_metric_namespaces)
+    print(f"  terraform metrics    : {len(index.metric_queries)} extracted "
+          f"from {s.monitors_repo_path}")
+    print(f"  terraform monitors   : {len(index.monitors)} monitors, "
+          f"{len(index.dashboards)} dashboards, {len(index.aliases)} service aliases")
+    if not index.metric_queries:
+        print("    !! 0 metrics extracted — check MONITORS_REPO_PATH and that "
+              "DATADOG_METRIC_NAMESPACES matches the metric names in that repo")
+
+
 def main() -> int:
     from app import config
 
@@ -64,8 +86,14 @@ def main() -> int:
     print(f"  datadog_configured   : {s.has_datadog}   (needs a PAT or API+APP key)")
     print(f"  anthropic_configured : {s.has_anthropic}")
     print(f"  llm_backend          : {s.llm_backend}")
+    print(f"  datadog_env_tag      : {s.datadog_env_tag}"
+          + ("   (default 'env' — verify your org actually carries it)"
+             if s.datadog_env_tag == "env" else ""))
     print(f"  datadog_tenant_tag   : {s.datadog_tenant_tag}")
-    print(f"  datadog_discovery    : {s.datadog_discovery_metric}")
+    print(f"  metric_namespaces    : {list(s.datadog_metric_namespaces)}"
+          + ("   (blank = every known metric is in scope)"
+             if not s.datadog_metric_namespaces else ""))
+    _report_registry(s)
     print(f"  datadog_tls_verify   : {s.datadog_verify!r}"
           + ("  (CA bundle path)" if isinstance(s.datadog_verify, str) else ""))
     print(f"  platform_scope       : {'configured' if s.has_platform_scope else 'NOT configured (all blank)'}")

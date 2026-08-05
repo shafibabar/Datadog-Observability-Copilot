@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from app.telemetry.base import DataSource
-from app.telemetry.datadog import LiveDatadogAdapter
+from app.telemetry.datadog import LiveDatadogAdapter, discover_metric_names
 from app.telemetry.models import EventSource, Severity
 
 API_KEY = "test-api-key"
@@ -240,7 +240,7 @@ def _scopes_handler():
 
 
 def test_list_scopes_returns_distinct_env_and_tenant_values():
-    a = _adapter(_scopes_handler(), discovery_metric="system.cpu.user")
+    a = _adapter(_scopes_handler(), metric_queries={"ec.a": "sum:ec.a{*}.as_count()"})
     scopes = a.list_scopes()
     assert scopes["environments"] == ["prod", "staging"]
     assert scopes["tenants"] == ["acme", "globex"]
@@ -255,6 +255,181 @@ def test_list_scopes_scopes_tenants_to_selected_environments():
             seen["tenant_q"] = q
         return httpx.Response(200, json={"series": []})
 
-    a = _adapter(handler, discovery_metric="system.cpu.user")
+    a = _adapter(handler, metric_queries={"ec.a": "sum:ec.a{*}"})
     a.list_scopes(environments=["prod", "staging"])
     assert "(env:prod OR env:staging)" in seen["tenant_q"]
+
+
+def test_tag_discovery_groups_an_in_scope_metric_not_an_infra_default():
+    # DATADOG_DISCOVERY_METRIC is retired: the tag-value query is built from a
+    # metric that's actually in scope, so discovery can't depend on system.*.
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.setdefault("queries", []).append(req.url.params.get("query") or "")
+        return httpx.Response(200, json={"series": []})
+
+    a = _adapter(handler, metric_queries={"ec.quota_manager.count": "sum:ec.quota_manager.count{*}"})
+    a.list_scopes()
+    assert seen["queries"][0] == "ec.quota_manager.count{*} by {env}"
+    assert not any("system.cpu.user" in q for q in seen["queries"])
+
+
+# --- the environment tag key is configurable, like the tenant one -----------
+# Verified live 2026-08-05: this org has NO `env` tag (grouping by it yields the
+# single placeholder series `env:N/A`); the environment dimension is carried by
+# `kube_namespace` (ep-perflab-uat, ep-smarsh-staging). A hardcoded "env" would
+# make every environment filter silently match nothing.
+
+def test_scope_filter_uses_the_configured_environment_tag():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["query"] = req.url.params.get("query")
+        return httpx.Response(200, json={"series": []})
+
+    a = _adapter(handler, metric_queries={"ec.m": "avg:ec.m{*}"},
+                 env_tag="kube_namespace", tenant_tag="tenant")
+    a.get_metric("ec.m", scope=Scope(environments=["ep-smarsh-staging"], tenants=["msanity"],
+                                     start=_S0, end=_S0 + timedelta(hours=1)))
+    assert "kube_namespace:ep-smarsh-staging" in seen["query"]
+    assert "tenant:msanity" in seen["query"]
+    assert "env:" not in seen["query"]
+
+
+def test_tag_discovery_groups_by_the_configured_environment_tag():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.setdefault("queries", []).append(req.url.params.get("query") or "")
+        return httpx.Response(200, json={"series": []})
+
+    a = _adapter(handler, metric_queries={"ec.m": "avg:ec.m{*}"}, env_tag="kube_namespace")
+    a.list_scopes()
+    assert seen["queries"][0] == "ec.m{*} by {kube_namespace}"
+
+
+def test_tenant_discovery_narrows_by_the_configured_environment_tag():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        q = req.url.params.get("query") or ""
+        if "by {tenant}" in q:
+            seen["q"] = q
+        return httpx.Response(200, json={"series": []})
+
+    a = _adapter(handler, metric_queries={"ec.m": "avg:ec.m{*}"},
+                 env_tag="kube_namespace", tenant_tag="tenant")
+    a.list_scopes(environments=["ep-perflab-uat", "ep-smarsh-staging"])
+    assert "(kube_namespace:ep-perflab-uat OR kube_namespace:ep-smarsh-staging)" in seen["q"]
+
+
+def test_event_tag_filter_uses_the_configured_environment_tag():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["tags"] = req.url.params.get("tags")
+        return httpx.Response(200, json={"events": []})
+
+    a = _adapter(handler, metric_queries={"ec.m": "avg:ec.m{*}"},
+                 env_tag="kube_namespace", tenant_tag="tenant")
+    a.get_events(scope=Scope(environments=["ep-smarsh-staging"], tenants=["msanity"],
+                             start=_S0, end=_S0 + timedelta(hours=1)))
+    assert seen["tags"] == "kube_namespace:ep-smarsh-staging,tenant:msanity"
+
+
+def test_environment_tag_defaults_to_env():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.setdefault("queries", []).append(req.url.params.get("query") or "")
+        return httpx.Response(200, json={"series": []})
+
+    a = _adapter(handler, metric_queries={"ec.m": "avg:ec.m{*}"})
+    a.list_scopes()
+    assert "by {env}" in seen["queries"][0]
+
+
+def test_discovered_tag_values_drop_datadogs_na_placeholder():
+    # Grouping by a tag the metric doesn't carry yields a literal "N/A" series;
+    # offering "N/A" as a selectable environment/tenant in the @ menu is noise.
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"series": [
+            {"tag_set": ["kube_namespace:N/A"]},
+            {"tag_set": ["kube_namespace:ep-smarsh-staging"]},
+            {"tag_set": ["kube_namespace:ep-perflab-uat"]},
+        ]})
+
+    a = _adapter(handler, metric_queries={"ec.m": "avg:ec.m{*}"}, env_tag="kube_namespace")
+    assert a.list_scopes()["environments"] == ["ep-perflab-uat", "ep-smarsh-staging"]
+
+
+def test_tag_discovery_with_an_empty_registry_makes_no_http_call():
+    def handler(req):  # pragma: no cover - must not be called
+        raise AssertionError("no metric in scope -> nothing to group by")
+
+    a = _adapter(handler, metric_queries={})
+    assert a.list_scopes() == {"environments": [], "tenants": []}
+
+
+# --- discover_metric_names: live metric-name discovery, namespace-filtered ---
+
+def _metrics_list_handler(payload, status=200):
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/api/v1/metrics"
+        assert req.url.params.get("from")           # a lookback window is required
+        return httpx.Response(status, json=payload)
+    return handler
+
+
+def _discover(handler, patterns=("ec.*",)):
+    return discover_metric_names(
+        patterns, access_token="t", site="datadoghq.eu",
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def test_discovers_metric_names_within_the_namespaces():
+    names = _discover(_metrics_list_handler(
+        {"metrics": ["ec.quota_manager.count", "ec.review.latency"]}))
+    assert names == ["ec.quota_manager.count", "ec.review.latency"]
+
+
+def test_discovery_drops_names_outside_the_namespaces():
+    names = _discover(_metrics_list_handler(
+        {"metrics": ["ec.a", "system.cpu.user", "trace.http.duration", "ea.b"]}))
+    assert names == ["ec.a"]
+
+
+def test_discovery_honours_multiple_namespaces():
+    names = _discover(
+        _metrics_list_handler({"metrics": ["ec.a", "ea.b", "system.cpu.user"]}),
+        patterns=("ec.*", "ea.*"),
+    )
+    assert names == ["ea.b", "ec.a"]          # sorted for a deterministic registry
+
+
+def test_discovery_also_reads_the_v2_style_data_shape():
+    # Tolerant parsing: the exact org/endpoint shape is unverified until the live
+    # probe runs, so a {"data": [{"id": ...}]} body must work too.
+    names = _discover(_metrics_list_handler(
+        {"data": [{"id": "ec.a", "type": "metrics"}, {"id": "system.cpu.user"}]}))
+    assert names == ["ec.a"]
+
+
+def test_discovery_returns_empty_on_an_http_error():
+    # Best-effort by design: the app falls back to Terraform-extracted metrics
+    # rather than failing to start.
+    assert _discover(_metrics_list_handler({"errors": ["Forbidden"]}, status=403)) == []
+
+
+def test_discovery_returns_empty_on_an_unexpected_shape():
+    assert _discover(_metrics_list_handler({"unexpected": True})) == []
+    assert _discover(_metrics_list_handler([1, 2, 3])) == []
+
+
+def test_discovery_without_namespaces_returns_nothing():
+    def handler(req):  # pragma: no cover - must not be called
+        raise AssertionError("no namespace scope -> no discovery call")
+
+    assert _discover(handler, patterns=()) == []

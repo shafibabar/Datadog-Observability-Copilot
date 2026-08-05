@@ -66,13 +66,18 @@ class Settings:
     # A Personal Access Token (PAT) is a standalone credential — preferred over the legacy key pair.
     datadog_access_token: str = field(default_factory=lambda: _get("DATADOG_ACCESS_TOKEN"))
     datadog_site: str = field(default_factory=lambda: _get("DATADOG_SITE", "datadoghq.com"))
-    # "tenant" is not a native Datadog concept; the tag key that represents it is
-    # org-specific, so it's configurable (env is the standard environment tag).
+    # Neither of the two scope dimensions maps to a guaranteed Datadog tag, so both
+    # tag keys are configurable. "tenant" is not a native Datadog concept at all;
+    # "env" is only a *convention* — a real org was found (2026-08-05) carrying no
+    # `env` tag whatsoever, expressing environment as `kube_namespace` instead.
     datadog_tenant_tag: str = field(default_factory=lambda: _get("DATADOG_TENANT_TAG", "tenant"))
-    # A widely-emitted metric used only to enumerate distinct env/tenant tag values
-    # for the scope dropdowns. Org-specific — must be a metric that carries the tags.
-    datadog_discovery_metric: str = field(
-        default_factory=lambda: _get("DATADOG_DISCOVERY_METRIC", "system.cpu.user"))
+    datadog_env_tag: str = field(default_factory=lambda: _get("DATADOG_ENV_TAG", "env"))
+    # THE metric scope: a comma-separated list of wildcard patterns ("ec.*, ea.*")
+    # naming the only metric namespaces the copilot may look at. This is an
+    # allowlist — a live org's thousands of metrics narrow to the platform under
+    # investigation. Blank means no filtering (every known metric is in scope).
+    datadog_metric_namespaces: tuple[str, ...] = field(
+        default_factory=lambda: _get_list("DATADOG_METRIC_NAMESPACES"))
     # TLS: on corporate networks that intercept HTTPS with a private root CA, point
     # this at that CA bundle (PEM) so requests verify. Last resort: set
     # DATADOG_VERIFY_SSL=0 to disable verification (insecure — avoid if you can).
@@ -153,6 +158,9 @@ class Settings:
             "llm_backend": self.llm_backend,
             "datadog_configured": self.has_datadog,
             "datadog_site": self.datadog_site,
+            "metric_namespaces": list(self.datadog_metric_namespaces),
+            "env_tag": self.datadog_env_tag,
+            "tenant_tag": self.datadog_tenant_tag,
             "model_fast": self.model_fast,
             "model_deep": self.model_deep,
             "platform_scope_configured": self.has_platform_scope,

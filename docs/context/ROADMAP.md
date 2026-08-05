@@ -31,7 +31,7 @@ The smallest coherent, demoable, extension-ready slice.
 Approved feature: make the copilot actually target the user's Datadog (env/tenant/window) instead of hardcoded org-wide golden signals, plus UX polish.
 - [x] **Scope model** (`Scope`: environments/tenants/window, ≥1 selection, ≤7-day span) persisted per conversation, overridable per turn, threaded into the DataSource query filter + window.
 - [x] **Scoped adapters**: Datadog builds `{(env:…) AND tenant:…}` filters + configurable tenant tag (`DATADOG_TENANT_TAG`) + scope window; Replay accepts-but-ignores scope.
-- [x] **Scope discovery** (`list_scopes`): Datadog enumerates env/tenant tag values (tenants narrowed to selected envs) via a discovery metric; Replay static set; `GET /api/scopes`.
+- [x] **Scope discovery** (`list_scopes`): Datadog enumerates env/tenant tag values (tenants narrowed to selected envs) by grouping an in-scope metric; Replay static set; `GET /api/scopes`. Superseded in practice by the static `COPILOT_PLATFORM_*` lists (2026-07-27) and metric scope by `DATADOG_METRIC_NAMESPACES` (2026-08-05).
 - [x] **Conversation subjects from the summary** (no extra LLM call); **rename**/**delete** (store + `Copilot` + `PATCH`/`DELETE` API).
 - [x] **Control row UI** below the composer: Environment + Tenant (multiselect, type-to-filter), Duration (presets + custom, 7-day-capped `datetime-local` range), Explain-as (persona, moved from the header). Send disabled until valid; updatable mid-conversation.
 - [x] **Sidebar**: real subjects + rename/delete controls (⋯ menu).

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from app.monitors.index import MonitorsIndex
+from app.monitors.index import MonitorsIndex, aliases_from_metric_names
 
 #: How many metrics one investigation may query. Bounds HTTP calls and tokens.
 DEFAULT_TOP_K = 8
@@ -41,8 +41,15 @@ def select_metrics(
     no signal at all, fall back to a golden set (one throughput-ish + one
     error-ish metric per service) so "is everything healthy?" still gets real
     telemetry. Only metrics in `available` are ever returned.
+
+    `available` — the registry the data source can actually query — is the
+    authority on what exists, NOT `index.metric_queries`. The Terraform repo is an
+    optional source of richer vocabulary (module phrases like "message
+    processing"), but live discovery alone routinely produces hundreds of metrics
+    with no Terraform checkout at all; keying off the index would then select
+    nothing and leave the caller to query everything.
     """
-    if not index.metric_queries:
+    if not available:
         return []
 
     question_text = (question or "").lower()
@@ -53,7 +60,14 @@ def select_metrics(
 
     scores: dict[str, float] = {}
 
-    for alias, metrics in index.aliases.items():
+    # Terraform module vocabulary first, then phrases implied by the available
+    # metric names themselves (the only vocabulary when there's no Terraform repo).
+    aliases: dict[str, list[str]] = {
+        alias: list(metrics) for alias, metrics in index.aliases.items()}
+    for alias, metrics in aliases_from_metric_names(available).items():
+        aliases.setdefault(alias, []).extend(metrics)
+
+    for alias, metrics in aliases.items():
         weight = 0.0
         if alias in question_text:
             weight = 10.0
@@ -63,7 +77,7 @@ def select_metrics(
             for metric in metrics:
                 scores[metric] = scores.get(metric, 0.0) + weight
 
-    for metric in index.metric_queries:
+    for metric in available:
         segments = _tokens(metric.replace(".", " ").replace("_", " ")) - _WEAK_SEGMENTS
         overlap = len(segments & question_tokens)
         if overlap:
@@ -75,16 +89,16 @@ def select_metrics(
     ]
     if ranked:
         return ranked[:k]
-    return _golden_set(index, available, k)
+    return _golden_set(available, k)
 
 
-def _golden_set(index: MonitorsIndex, available: set[str], k: int) -> list[str]:
+def _golden_set(available: set[str], k: int) -> list[str]:
     """One throughput-flavored and one error-flavored metric per service, capped
     at k — the default lens when the question names nothing specific."""
     by_service: dict[str, list[str]] = {}
-    for metric in sorted(index.metric_queries):
+    for metric in sorted(available):
         parts = metric.split(".")
-        if len(parts) >= 2 and metric in available:
+        if len(parts) >= 2:
             by_service.setdefault(parts[1], []).append(metric)
 
     selected: list[str] = []

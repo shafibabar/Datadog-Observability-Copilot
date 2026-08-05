@@ -49,6 +49,16 @@ def test_at_menu_offers_environment_tenant_and_duration():
     assert "scope-list" in js and "scope-opt" in js   # reused drill-down row/option styling
 
 
+def test_at_menu_hides_a_dimension_with_no_options():
+    # A minimal live config (tenants only, no COPILOT_PLATFORM_ENVIRONMENTS) must
+    # not offer an "Environment" row that dead-ends on "No matches".
+    js = _js()
+    root = js[js.index("function renderAtMenu"):js.index("function positionAtMenu")]
+    assert "envOptions.length" in root and "tenantOptions.length" in root
+    # Duration is always available — it needs no discovered options.
+    assert "Duration" in root
+
+
 def test_at_sign_in_the_composer_triggers_the_menu():
     js = _js()
     assert 'e.data === "@"' in js
