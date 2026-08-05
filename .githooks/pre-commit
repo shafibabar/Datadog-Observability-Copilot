@@ -1,0 +1,15 @@
+#!/bin/sh
+# Version-controlled pre-commit hook.
+#
+# .git/hooks/ is NOT committed, so a hook placed there would exist on one machine
+# only — useless for a project whose portability test is "repo + kickoff prompt
+# alone". This directory is committed instead and activated once per clone with:
+#
+#     git config core.hooksPath .githooks
+#
+# The check itself lives in scripts/check_testing_log.py (stdlib only, unit-tested
+# in tests/test_hooks.py) so it can be reasoned about and run by hand. Bypass any
+# single commit with `git commit --no-verify`.
+set -e
+
+python3 "$(dirname "$0")/../scripts/check_testing_log.py"
