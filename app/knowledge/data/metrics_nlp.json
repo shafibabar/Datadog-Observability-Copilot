@@ -1,0 +1,1356 @@
+{
+  "$schema": "ec-surveillance-datadog-metrics-nlp/v1",
+  "metadata": {
+    "name": "EC Surveillance Datadog Metrics — NLP Grammar + Interpreter + Catalog",
+    "description": "Three-layer artifact. (1) nlpInterface: a natural-language grammar (intents, entities, synonyms) a non-technical user speaks/types, plus a deterministic 'interpreter' spec that turns a parsed utterance into a concrete Datadog/OTel query. (2) metrics: the per-repo catalog of emitted series the interpreter resolves against. (3) examples: worked NL->query resolutions. Metrics are OTel (com.smarsh.observability.telemetry.Metrics -> LongCounter/LongHistogram) exported to Datadog; full series name = GROUP_NAME + '.' + metricName.",
+    "howToUse": "1) NLU matches utterance -> intent (nlpInterface.intents). 2) Extract slots and normalize each via nlpInterface.entities[*].synonyms -> canonical value. 3) interpreter.resolution builds {series, aggregation, groupBy, filters, timeRange}. 4) Validate series against metrics.repositories[service]. 5) If service/metric unresolved, use interpreter.fallbacks.",
+    "emissionMechanism": {
+      "sdk": "com.smarsh.observability.telemetry.Metrics",
+      "types": [
+        "LongCounter",
+        "LongHistogram",
+        "gauge (ReconJobGauge/PendingPipelinesGauge)"
+      ],
+      "exporter": "OTLP -> Datadog (K8s: DD_TRACE_ENABLED=false, TELEMETRY_PROVIDER=OTEL)",
+      "fullSeriesNameRule": "GROUP_NAME + '.' + metricName",
+      "groupNameIsInconsistent": {
+        "ec.indexer": "dot-style",
+        "ec.surveillance_filter": "underscore",
+        "ec.surveillance_policy_evaluator": "underscore",
+        "ec.review_service": "underscore"
+      }
+    }
+  },
+  "nlpInterface": {
+    "description": "Everything the interpreter needs to understand a non-technical user. intents = what they want; entities = the vocabulary + synonyms it maps to canonical tokens; interpreter = deterministic assembly rules.",
+    "intents": [
+      {
+        "id": "GET_THROUGHPUT",
+        "meaning": "How many of something were processed / the volume or rate.",
+        "utterances": [
+          "how many {object} did we {verb}",
+          "how many {object}",
+          "what's the {object} volume",
+          "throughput of {object}",
+          "count of {object}",
+          "how many messages went through {service}",
+          "how busy is {service}"
+        ],
+        "slots": {
+          "object": "OBJECT",
+          "service": "SERVICE",
+          "timeRange": "TIME_RANGE",
+          "tenant": "TENANT"
+        },
+        "resolvesTo": {
+          "metricType": "counter",
+          "aggregation": "sum_as_rate"
+        }
+      },
+      {
+        "id": "GET_LATENCY",
+        "meaning": "How slow / how long something takes.",
+        "utterances": [
+          "how slow is {object}",
+          "how long does {object} take",
+          "{object} response time",
+          "{object} latency",
+          "is {service} slow",
+          "p99 of {object}",
+          "tail latency for {object}"
+        ],
+        "slots": {
+          "object": "OBJECT",
+          "service": "SERVICE",
+          "percentile": "PERCENTILE",
+          "timeRange": "TIME_RANGE",
+          "tenant": "TENANT"
+        },
+        "resolvesTo": {
+          "metricType": "latency",
+          "aggregation": "p99"
+        }
+      },
+      {
+        "id": "GET_ERRORS",
+        "meaning": "How many failures / error rate / what broke.",
+        "utterances": [
+          "how many errors in {service}",
+          "what's failing in {service}",
+          "error rate for {object}",
+          "how many {object} failed",
+          "is {service} broken",
+          "failures for {object}"
+        ],
+        "slots": {
+          "object": "OBJECT",
+          "service": "SERVICE",
+          "timeRange": "TIME_RANGE",
+          "tenant": "TENANT"
+        },
+        "resolvesTo": {
+          "metricType": "error_counter",
+          "aggregation": "sum_as_rate"
+        }
+      },
+      {
+        "id": "GET_DEADLETTER",
+        "meaning": "How many messages were given up on / dead-lettered.",
+        "utterances": [
+          "how many {object} were dead-lettered",
+          "how many messages did {service} give up on",
+          "poison messages in {service}",
+          "dropped {object}",
+          "dlt count for {service}"
+        ],
+        "slots": {
+          "object": "OBJECT",
+          "service": "SERVICE",
+          "timeRange": "TIME_RANGE",
+          "tenant": "TENANT"
+        },
+        "resolvesTo": {
+          "metricType": "dlt_counter",
+          "aggregation": "sum"
+        }
+      },
+      {
+        "id": "GET_LAG",
+        "meaning": "Is a service backed up / behind on its queue.",
+        "utterances": [
+          "is {service} lagging",
+          "is {service} backed up",
+          "is {service} behind",
+          "queue depth for {service}",
+          "consumer lag {service}",
+          "is {service} keeping up"
+        ],
+        "slots": {
+          "service": "SERVICE",
+          "tenant": "TENANT"
+        },
+        "resolvesTo": {
+          "metricType": "infra_kafka_lag",
+          "aggregation": "max",
+          "series": "kafka.consumer_lag"
+        }
+      },
+      {
+        "id": "GET_HEALTH",
+        "meaning": "Overall health / is it up / pod restarts / memory.",
+        "utterances": [
+          "is {service} healthy",
+          "is {service} up",
+          "pod restarts for {service}",
+          "memory usage of {service}",
+          "cpu of {service}",
+          "is {service} crashing"
+        ],
+        "slots": {
+          "service": "SERVICE"
+        },
+        "resolvesTo": {
+          "metricType": "infra_pod",
+          "series": [
+            "kubernetes_state.container.restarts",
+            "kubernetes.memory.usage",
+            "kubernetes.cpu.usage.total"
+          ]
+        }
+      },
+      {
+        "id": "GET_COMPLETION",
+        "meaning": "Did a run/window finish; reconciliation status; corpus counts.",
+        "utterances": [
+          "did the run finish",
+          "is reconciliation done",
+          "how many messages were reconciled",
+          "monitored corpus for {tenant}",
+          "how many were alerted / sampled / ignored",
+          "completion status"
+        ],
+        "slots": {
+          "stage": "STAGE",
+          "tenant": "TENANT",
+          "timeRange": "TIME_RANGE"
+        },
+        "resolvesTo": {
+          "metricType": "counter|gauge",
+          "service": "ec-centralised-audit|ec-reporting|ec-surveillance-quota-manager"
+        }
+      }
+    ],
+    "entities": [
+      {
+        "name": "METRIC_TYPE",
+        "canonicalValues": {
+          "counter": {
+            "synonyms": [
+              "count",
+              "how many",
+              "volume",
+              "total",
+              "throughput",
+              "number of",
+              "rate"
+            ],
+            "nameSuffixes": [
+              "_counter",
+              "_rate",
+              "_consumption_rate",
+              "_hit_rate",
+              "_consumption"
+            ]
+          },
+          "latency": {
+            "synonyms": [
+              "how slow",
+              "speed",
+              "response time",
+              "duration",
+              "took how long",
+              "processing time",
+              "tail latency"
+            ],
+            "nameSuffixes": [
+              "_latency",
+              "_processing_time",
+              "_consumption_latency"
+            ],
+            "instrument": "LongHistogram"
+          },
+          "error_counter": {
+            "synonyms": [
+              "errors",
+              "failures",
+              "broke",
+              "failed",
+              "error rate",
+              "what's failing"
+            ],
+            "nameSuffixes": [
+              "_error_counter",
+              "_error_rate"
+            ]
+          },
+          "dlt_counter": {
+            "synonyms": [
+              "dead-lettered",
+              "gave up",
+              "poison messages",
+              "dropped",
+              "dlt"
+            ],
+            "nameSuffixes": [
+              "_dlt_counter"
+            ]
+          },
+          "gauge": {
+            "synonyms": [
+              "current",
+              "pending",
+              "how many right now",
+              "outstanding"
+            ],
+            "examples": [
+              "METRIC_RECON_JOB_INGESTED_COUNT",
+              "METRIC_RECON_JOB_RECONCILED_COUNT",
+              "pending_pipeline_ids"
+            ]
+          },
+          "infra_kafka_lag": {
+            "synonyms": [
+              "lag",
+              "backed up",
+              "behind",
+              "queue depth",
+              "not keeping up"
+            ],
+            "series": "kafka.consumer_lag"
+          },
+          "infra_pod": {
+            "synonyms": [
+              "health",
+              "restarts",
+              "memory",
+              "cpu",
+              "OOM",
+              "crashing",
+              "pods"
+            ],
+            "series": [
+              "kubernetes_state.container.restarts",
+              "kubernetes.memory.usage",
+              "kubernetes.cpu.usage.total"
+            ]
+          }
+        }
+      },
+      {
+        "name": "SERVICE",
+        "note": "User words -> canonical repo. Reuses the domain synonym map (queue==pipeline, sample==quota, etc.).",
+        "canonicalValues": {
+          "ec-gateway": {
+            "synonyms": [
+              "gateway",
+              "intake",
+              "ingestion",
+              "front door",
+              "the entry point"
+            ],
+            "groupNameGuess": "ec.gateway"
+          },
+          "ec-queue-qualifier": {
+            "synonyms": [
+              "qualifier",
+              "queue qualifier",
+              "pipeline qualifier",
+              "selection",
+              "who's monitored",
+              "population matcher"
+            ]
+          },
+          "ec-surveillance-filter": {
+            "synonyms": [
+              "filter",
+              "policy filter",
+              "ignore check",
+              "rule engine",
+              "filtering"
+            ],
+            "groupName": "ec.surveillance_filter"
+          },
+          "ec-surveillance-policy-evaluator": {
+            "synonyms": [
+              "policy evaluator",
+              "cognition",
+              "AI evaluation",
+              "NLP scan",
+              "content check",
+              "coms",
+              "cims"
+            ],
+            "groupName": "ec.surveillance_policy_evaluator"
+          },
+          "ec-surveillance-quota-manager": {
+            "synonyms": [
+              "quota manager",
+              "sampler",
+              "sampling",
+              "random selection",
+              "quota",
+              "bucketing"
+            ]
+          },
+          "ec-alerting-service": {
+            "synonyms": [
+              "alerting",
+              "alerts",
+              "alert generator",
+              "case creator",
+              "flagging",
+              "supervised items"
+            ]
+          },
+          "ec-indexer": {
+            "synonyms": [
+              "indexer",
+              "index",
+              "search writer",
+              "elasticsearch writer",
+              "archiver"
+            ],
+            "groupName": "ec.indexer"
+          },
+          "ec-review-service": {
+            "synonyms": [
+              "review service",
+              "reviewers",
+              "reviewer config",
+              "assignments",
+              "entitlements",
+              "who reviews"
+            ],
+            "groupName": "ec.review_service"
+          },
+          "ec-reporting": {
+            "synonyms": [
+              "reporting",
+              "reports",
+              "dashboards",
+              "kpis",
+              "dhc",
+              "health check report"
+            ]
+          },
+          "ec-manual-runs-service": {
+            "synonyms": [
+              "manual runs",
+              "re-run",
+              "replay",
+              "lookback",
+              "backfill",
+              "remediation",
+              "on-demand"
+            ]
+          },
+          "ec-centralised-audit": {
+            "synonyms": [
+              "audit",
+              "centralised audit",
+              "tracking",
+              "reconciliation",
+              "recon",
+              "lifecycle tracker"
+            ]
+          },
+          "ec-echo-engine": {
+            "synonyms": [
+              "echo",
+              "echo engine",
+              "dedup",
+              "duplicate detector",
+              "repeat finder"
+            ]
+          }
+        }
+      },
+      {
+        "name": "OBJECT",
+        "note": "The thing being counted/timed. Maps a user noun to an operation/consumer token used in the metric name.",
+        "canonicalValues": {
+          "communication": {
+            "synonyms": [
+              "message",
+              "email",
+              "comm",
+              "item",
+              "record",
+              "document"
+            ],
+            "opTokens": [
+              "ingested",
+              "ingestion",
+              "communication"
+            ]
+          },
+          "qualification": {
+            "synonyms": [
+              "selected",
+              "picked up",
+              "matched population",
+              "qualified"
+            ],
+            "opTokens": [
+              "qualifier",
+              "qualification",
+              "queue_qualifier"
+            ]
+          },
+          "filter_eval": {
+            "synonyms": [
+              "filtered",
+              "processed",
+              "ignored",
+              "evaluated",
+              "policy check"
+            ],
+            "opTokens": [
+              "policy_evaluation",
+              "evaluation",
+              "filter"
+            ]
+          },
+          "sampling": {
+            "synonyms": [
+              "sample",
+              "random sample",
+              "quota",
+              "spot check",
+              "sampled"
+            ],
+            "opTokens": [
+              "sampling",
+              "surveilled_communications",
+              "surveilled_not_qualified_comms_consumer",
+              "metadata_comms"
+            ]
+          },
+          "alert": {
+            "synonyms": [
+              "alert",
+              "flag",
+              "hit",
+              "case",
+              "supervised item"
+            ],
+            "opTokens": [
+              "surveilled_communication_event",
+              "supervised_item_get",
+              "alert"
+            ]
+          },
+          "index": {
+            "synonyms": [
+              "index",
+              "store",
+              "save",
+              "archive",
+              "search doc"
+            ],
+            "opTokens": [
+              "bulk",
+              "parent",
+              "child",
+              "audio_enrichment"
+            ]
+          },
+          "review_api": {
+            "synonyms": [
+              "reviewer group",
+              "entitlement",
+              "assignment",
+              "reviewers",
+              "csv import",
+              "csv export"
+            ],
+            "opTokens": [
+              "create_reviewer_group",
+              "bulk_create_reviewer_groups",
+              "get_reviewer_groups_list",
+              "get_reviewer_group_members",
+              "delete_reviewer_group",
+              "update_reviewer_group",
+              "add_reviewer_group_to_queues",
+              "remove_reviewer_group_from_queues",
+              "get_reviewer_roles_for_queue",
+              "fetch_pipelines_by_reviewerId",
+              "get_pipeline_reviewers",
+              "get_reviewer_group_ids_for_pipeline",
+              "get_pipeline_assignments",
+              "import_csv_api",
+              "export_csv_api",
+              "get_review_entitlements_by_pipeline",
+              "delete_review_entitlements_by_pipeline"
+            ]
+          },
+          "manual_run": {
+            "synonyms": [
+              "re-run",
+              "manual run",
+              "replay",
+              "reprocess"
+            ],
+            "opTokens": [
+              "initiate_api",
+              "status_api",
+              "pipeline_status_api",
+              "post_migration_initiate_api",
+              "status_check_request"
+            ]
+          },
+          "lookback": {
+            "synonyms": [
+              "lookback",
+              "backfill",
+              "historical run"
+            ],
+            "opTokens": [
+              "lookback_api",
+              "lookback_athena_result_guardrail_exceeded"
+            ]
+          },
+          "remediation": {
+            "synonyms": [
+              "remediation",
+              "on-demand remediate",
+              "re-ingest"
+            ],
+            "opTokens": [
+              "remediate_api",
+              "get_remediation_status_api",
+              "remediation_search",
+              "remediation_dlt_consumption",
+              "remediation_event_forward"
+            ]
+          },
+          "reconciliation": {
+            "synonyms": [
+              "reconcile",
+              "recon",
+              "did it finish",
+              "completion"
+            ],
+            "opTokens": [
+              "recon_job",
+              "source_recon_job",
+              "SOURCE_RECON_COMPLETED_SUCCESS",
+              "COMM_EVENT_DLT"
+            ]
+          },
+          "echo": {
+            "synonyms": [
+              "duplicate",
+              "echo",
+              "repeat",
+              "dedup"
+            ],
+            "opTokens": [
+              "AUDIT_ADAPTER_CONSUMPTION",
+              "MONGO_OPERATION"
+            ]
+          },
+          "policy_api": {
+            "synonyms": [
+              "policy",
+              "get policy",
+              "fetch policy",
+              "rule"
+            ],
+            "opTokens": [
+              "policy_api"
+            ]
+          },
+          "bootstrap": {
+            "synonyms": [
+              "bootstrap",
+              "setup",
+              "config setup"
+            ],
+            "opTokens": [
+              "bootstrap_config_api",
+              "manual_run_bootstrap_config_api"
+            ]
+          },
+          "workflow": {
+            "synonyms": [
+              "ai workflow",
+              "cognition workflow",
+              "scenario setup"
+            ],
+            "opTokens": [
+              "workflow_creation",
+              "ingestion_token_creation",
+              "ea_storgae_api"
+            ]
+          }
+        }
+      },
+      {
+        "name": "PERCENTILE",
+        "canonicalValues": {
+          "p50": {
+            "synonyms": [
+              "median",
+              "typical",
+              "average-ish",
+              "p50"
+            ]
+          },
+          "p95": {
+            "synonyms": [
+              "p95",
+              "95th"
+            ]
+          },
+          "p99": {
+            "synonyms": [
+              "p99",
+              "99th",
+              "worst case",
+              "tail",
+              "slowest"
+            ],
+            "default": true
+          }
+        }
+      },
+      {
+        "name": "TIME_RANGE",
+        "canonicalValues": {
+          "1h": {
+            "synonyms": [
+              "last hour",
+              "past hour"
+            ]
+          },
+          "1d": {
+            "synonyms": [
+              "today",
+              "last day",
+              "past 24 hours",
+              "since yesterday"
+            ],
+            "default": true
+          },
+          "7d": {
+            "synonyms": [
+              "this week",
+              "last 7 days",
+              "past week"
+            ]
+          },
+          "now": {
+            "synonyms": [
+              "right now",
+              "currently",
+              "at the moment"
+            ]
+          }
+        }
+      },
+      {
+        "name": "TENANT",
+        "note": "User words 'customer/org/client' -> tag filter tenant:<value>. Value is a free string; interpreter emits filter {tag:'tenant', value:<extracted>}.",
+        "synonyms": [
+          "customer",
+          "org",
+          "organization",
+          "client",
+          "for {name}"
+        ]
+      },
+      {
+        "name": "STAGE",
+        "note": "Lifecycle stage a user asks completion/corpus about; maps to reporting corpus counters.",
+        "canonicalValues": {
+          "ingested": {
+            "synonyms": [
+              "received",
+              "came in",
+              "ingested"
+            ],
+            "metric": "ingestedMessageCount / MonitoredCorpus"
+          },
+          "qualified": {
+            "synonyms": [
+              "selected",
+              "qualified",
+              "in scope"
+            ],
+            "metric": "qualifiedMessageCount"
+          },
+          "filtered": {
+            "synonyms": [
+              "ignored",
+              "filtered",
+              "dropped by rules"
+            ],
+            "metric": "IgnorePolicyCorpus / FilterPolicyCorpus"
+          },
+          "sampled": {
+            "synonyms": [
+              "sampled",
+              "random selected"
+            ],
+            "metric": "SURVEILLED_COMMS_SAMPLED"
+          },
+          "alerted": {
+            "synonyms": [
+              "alerted",
+              "flagged"
+            ],
+            "metric": "AlertedFlaggedCorpus"
+          },
+          "echoed": {
+            "synonyms": [
+              "duplicate",
+              "echo cancelled"
+            ],
+            "metric": "EchoUpdateClose / echoCancellationCount"
+          }
+        }
+      }
+    ],
+    "interpreter": {
+      "resolution": {
+        "step1_intent": "Match utterance to intents[].id; take resolvesTo.metricType + default aggregation.",
+        "step2_service": "Resolve SERVICE synonym -> canonical repo -> metrics.repositories[repo].groupName.",
+        "step3_object": "Resolve OBJECT synonym -> opTokens[]; find the metrics.repositories[repo] series whose name contains an opToken AND ends with the metricType nameSuffix.",
+        "step4_series": "candidateSeries = groupName + '.' + <matchedMetricName>. If multiple match, prefer exact opToken+suffix; else return list for disambiguation.",
+        "step5_query": "Emit {series, aggregation (override with PERCENTILE if latency), groupBy:['tenant'], filters:[tenant?], timeRange}.",
+        "step6_validate": "Confirm series is present (or family-inferred=true) in metrics.repositories[repo]. If inferred, tag response confidence='inferred'."
+      },
+      "aggregationRules": {
+        "counter": "sum, optionally .as_rate() when user says 'rate'/'per second'",
+        "latency": "percentile (default p99; p50 if 'typical/median'); by {tenant}",
+        "error_counter": "sum().as_rate() by {tenant, error_code, exception}",
+        "dlt_counter": "sum() by {tenant}",
+        "gauge": "latest/avg by {tenant}",
+        "infra_kafka_lag": "max by {consumer_group}",
+        "infra_pod": "avg/max by {pod, kube_deployment}"
+      },
+      "defaultTags": [
+        "tenant"
+      ],
+      "queryTemplate": "{aggregation}:{series}{{filters}} by {{groupBy}}",
+      "fallbacks": {
+        "unknownService": "Ask user to pick from entities.SERVICE.canonicalValues keys.",
+        "unknownObject": "List available opTokens for the resolved service.",
+        "inferredMetric": "Return best-guess series but set confidence='inferred' and add note 'exact metric name not source-verified for this repo'.",
+        "infraVsApp": "If object is a queue/lag/pod concept, route to infra_* series (Datadog agent) not OTel app series."
+      }
+    }
+  },
+  "metrics": {
+    "commonPatterns": {
+      "instruments": [
+        {
+          "class": "ElapsedTimeMetric",
+          "type": "LongHistogram",
+          "seriesRule": "GROUP_NAME + '.' + metricName",
+          "unit": "ms",
+          "userSynonyms": [
+            "how slow",
+            "latency"
+          ]
+        },
+        {
+          "class": "ConsumptionRateCounter",
+          "type": "LongCounter",
+          "purpose": "per-tenant consumed-message throughput",
+          "userSynonyms": [
+            "how many processed",
+            "throughput"
+          ]
+        },
+        {
+          "class": "ErrorRateCounter",
+          "type": "LongCounter",
+          "tags": [
+            "exception",
+            "error_code"
+          ],
+          "userSynonyms": [
+            "errors",
+            "failures"
+          ]
+        },
+        {
+          "annotation": "@RecordLatency(metricName, tenantArgIndex)",
+          "handledBy": "RecordLatencyAspect / LatencyRecordingAspect",
+          "note": "records ONLY on success (failed calls emit no latency)"
+        },
+        {
+          "annotation": "@ApiMetricName(value)",
+          "handledBy": "ApiInterceptor.afterCompletion",
+          "emits": "{value}_hit_rate + {value}_error_counter + latency histogram (per tenant)"
+        },
+        {
+          "annotation": "@KafkaConsumerMetricName(value)",
+          "note": "AOP sibling of @ApiMetricName for consumers (ec-manual-runs-service)"
+        }
+      ],
+      "infraSeries": [
+        {
+          "series": "kafka.consumer_lag",
+          "note": "per consumer_group; visualized but NOT alert-monitored",
+          "userSynonyms": [
+            "lagging",
+            "backed up",
+            "behind"
+          ]
+        },
+        {
+          "series": "kubernetes_state.container.restarts | kubernetes.memory.usage | kubernetes.cpu.usage.total",
+          "userSynonyms": [
+            "restarts",
+            "OOM",
+            "cpu",
+            "pod health"
+          ]
+        },
+        {
+          "series": "mongodb.opcounters.* | mongodb.replset.replicationlag",
+          "userSynonyms": [
+            "db load",
+            "replication lag"
+          ]
+        },
+        {
+          "series": "jmx.debezium.mongodb.milli_seconds_behind_source | number_of_disconnects",
+          "userSynonyms": [
+            "CDC lag",
+            "debezium behind"
+          ]
+        }
+      ]
+    },
+    "repositories": {
+      "ec-indexer": {
+        "confidence": "high",
+        "groupName": "ec.indexer",
+        "tags": [
+          "tenant",
+          "topic",
+          "reconciliation_token",
+          "window_token",
+          "source",
+          "sourceId",
+          "exception",
+          "error_code"
+        ],
+        "unitEnum": [
+          "messages",
+          "ms"
+        ],
+        "series": [
+          {
+            "name": "*_latency",
+            "type": "latency",
+            "via": "ElapsedTimeMetric / @RecordLatency",
+            "objects": [
+              "s3 download",
+              "bulk index",
+              "audio enrichment",
+              "parent reindex"
+            ]
+          },
+          {
+            "name": "*_counter",
+            "type": "counter",
+            "via": "ConsumptionRateCounter",
+            "objects": [
+              "IngestedCommunicationConsumer",
+              "SurveilledCommunicationConsumer",
+              "AlertedCommunicationConsumer",
+              "ParentReIndexingEventConsumer"
+            ]
+          },
+          {
+            "name": "*_error_counter",
+            "type": "error_counter",
+            "via": "ErrorRateCounter"
+          }
+        ],
+        "note": "Per-operation literal strings built at call sites; family + GROUP_NAME verified."
+      },
+      "ec-surveillance-filter": {
+        "confidence": "high",
+        "groupName": "ec.surveillance_filter",
+        "series": [
+          {
+            "name": "policy_api_latency",
+            "full": "ec.surveillance_filter.policy_api_latency",
+            "type": "latency",
+            "tags": [
+              "tenant"
+            ],
+            "dashboardWidget": "fetch_policy_api (p99/p95 by tenant)"
+          }
+        ],
+        "families": [
+          "policy_evaluation_*",
+          "bootstrap_api_*",
+          "manual_run_*",
+          "sync_*",
+          "memory_split"
+        ],
+        "kpiEvents": {
+          "topic": "ec.surveillance-filter.{tenant}.kpi-events",
+          "note": "KPIs are Kafka events, not OTel"
+        }
+      },
+      "ec-surveillance-policy-evaluator": {
+        "confidence": "high",
+        "groupName": "ec.surveillance_policy_evaluator",
+        "series": [
+          {
+            "name": "workflow_creation_error_rate",
+            "type": "error_counter",
+            "emittedAt": "CognitionService.handleError"
+          },
+          {
+            "name": "ingestion_token_creation_error_rate",
+            "type": "error_counter",
+            "bug": "double-incremented per error"
+          },
+          {
+            "name": "ea_storgae_api_error_counter",
+            "type": "error_counter",
+            "typo": "'storgae' in source"
+          },
+          {
+            "name": "bootstrap_config_api_error_counter",
+            "type": "error_counter",
+            "onlyForPaths": [
+              "/bootstrap-config"
+            ]
+          },
+          {
+            "name": "manual_run_bootstrap_config_api_error_counter",
+            "type": "error_counter",
+            "onlyForPaths": [
+              "/manual-run-bootstrap-config"
+            ]
+          }
+        ],
+        "gap": "No catch-all API error metric."
+      },
+      "ec-queue-qualifier": {
+        "confidence": "high",
+        "groupName": "(underscore-style; not read)",
+        "series": [
+          {
+            "name": "bootstrap_config_api_error_counter",
+            "type": "error_counter"
+          },
+          {
+            "name": "pipeline_surveilled_populations_api_error_counter",
+            "type": "error_counter"
+          },
+          {
+            "name": "pipeline_by_id_api_error_counter",
+            "type": "error_counter"
+          }
+        ],
+        "families": [
+          "queue_qualifier_*",
+          "freeze_window_*",
+          "pipeline_sync_*",
+          "api_stats_*"
+        ],
+        "kpiEvents": {
+          "topic": "ec.queue-qualifier.{tenant}.kpi-events"
+        },
+        "gap": "3 PATH_TO_METRIC_MAP entries vs 9 endpoints -> some endpoints emit no error counter."
+      },
+      "ec-alerting-service": {
+        "confidence": "high",
+        "groupName": "(not read)",
+        "series": [
+          {
+            "name": "surveilled_communication_event_error_counter",
+            "type": "error_counter"
+          },
+          {
+            "name": "surveilled_communication_event_dlt_counter",
+            "type": "dlt_counter"
+          },
+          {
+            "name": "surveilled_communication_retention_event_error_counter",
+            "type": "error_counter"
+          },
+          {
+            "name": "supervised_item_get_api_latency",
+            "type": "latency"
+          },
+          {
+            "name": "supervised_item_get_api_counter",
+            "type": "counter"
+          },
+          {
+            "name": "supervised_item_get_api_error_counter",
+            "type": "error_counter"
+          }
+        ],
+        "families": [
+          {
+            "pattern": "{consumer}_counter",
+            "type": "counter",
+            "note": "per-tenant consumption on all 7 consumers"
+          },
+          {
+            "pattern": "{consumer}_processing_time",
+            "type": "latency"
+          }
+        ]
+      },
+      "ec-surveillance-quota-manager": {
+        "confidence": "medium",
+        "groupName": "(underscore-style; not read)",
+        "series_inferred": true,
+        "families": [
+          "kpi_*",
+          "surveilled_communications_*",
+          "surveilled_not_qualified_comms_consumer_*",
+          "metadata_comms_*",
+          "reconciled_event_consumer_*",
+          "sampling_stats_*",
+          "create_next_quota_window_api_*",
+          "bootstrap_api_*",
+          "clean_up_cron_job_*"
+        ],
+        "samplingOutcomes": [
+          "SURVEILLED_COMMS_SAMPLED",
+          "SURVEILLED_COMMS_NOT_SAMPLED"
+        ],
+        "note": "Families from ec_quota_manager_dashboard (10 widget groups) + naming convention; exact literals not source-verified."
+      },
+      "ec-reporting": {
+        "confidence": "high",
+        "groupName": "(hardcoded in MetricConstants, underscore-style)",
+        "unitEnum": [
+          "messages",
+          "ms",
+          "count"
+        ],
+        "instruments": [
+          "@RecordLatency (13 sites) -> LatencyRecordingAspect -> TenantLatencyHistogram (success-only)",
+          "ConsumptionRateCounter",
+          "ErrorRateCounter",
+          "PendingPipelinesGauge"
+        ],
+        "series": [
+          {
+            "name": "CONDUCT_AUDIT_PUBLISH_ERROR_RATE",
+            "type": "error_counter"
+          },
+          {
+            "name": "PIPELINE_QUALIFIER_API_ERROR_RATE",
+            "type": "error_counter"
+          },
+          {
+            "name": "PIPELINE_EXECUTION_REPORT_ERROR_COUNTER",
+            "type": "error_counter"
+          },
+          {
+            "name": "bootstrap_config_api_error_counter",
+            "type": "error_counter"
+          },
+          {
+            "name": "*_latency (13 @RecordLatency sites)",
+            "type": "latency",
+            "sites": [
+              "PipelineEventCustomRepositoryImpl.bulkUpsert",
+              "PipelineEventService",
+              "WindowTokenService(x3)",
+              "PipelineQualifierService",
+              "PipelineReportService(x3)",
+              "EventLogService",
+              "PipelineSyncHandler",
+              "ReconciledEventHandler",
+              "SupervisedItemService(x2)"
+            ]
+          }
+        ],
+        "families": [
+          "event_log_*",
+          "recon_consumer_*",
+          "pipeline_report_completion_*",
+          "pipeline_execution_report_api_*"
+        ],
+        "cardinalityRisks": [
+          "tag 'exception' set to exception OBJECT (4 sites)",
+          "tag 'pending_pipeline_ids' set to List<String>"
+        ]
+      },
+      "ec-gateway": {
+        "confidence": "medium",
+        "groupName": "(not read)",
+        "series": [
+          {
+            "name": "remediation_event_forward_error_counter",
+            "type": "error_counter",
+            "emittedAt": "RemediationEventForwardingService on forward failure"
+          }
+        ],
+        "families_inferred": true,
+        "families": [
+          "ingestion_gateway_event_consumer_*",
+          "manual_run_event_consumer_*",
+          "remediation_event_consumer_*",
+          "quota_window_cdc_consumer_*",
+          "watermark_api_*"
+        ]
+      },
+      "ec-centralised-audit": {
+        "confidence": "high",
+        "groupName": "(not read)",
+        "series": [
+          {
+            "name": "BOOTSTRAP_CONFIG_API_LATENCY",
+            "type": "latency"
+          },
+          {
+            "name": "bootstrap_config_api_error_counter",
+            "type": "error_counter",
+            "onlyForPaths": [
+              "bootstrap-config"
+            ]
+          },
+          {
+            "name": "SOURCE_API_COUNTER",
+            "type": "counter",
+            "emittedAt": "SourceController POST /source"
+          },
+          {
+            "name": "SOURCE_API_LATENCY",
+            "type": "latency"
+          },
+          {
+            "name": "COMM_EVENT_DLT_COUNTER",
+            "type": "dlt_counter",
+            "emittedAt": "CommunicationEventConsumer.secondRetry -> DLT"
+          },
+          {
+            "name": "recon_job_latency",
+            "type": "latency",
+            "emittedAt": "ReconCronJobScheduler"
+          },
+          {
+            "name": "source_recon_job_latency",
+            "type": "latency",
+            "emittedAt": "SourceReconScheduler"
+          },
+          {
+            "name": "source_recon_job_error_rate",
+            "type": "error_counter"
+          },
+          {
+            "name": "SOURCE_RECON_COMPLETED_SUCCESS_COUNTER",
+            "type": "counter",
+            "note": "INGESTION only"
+          },
+          {
+            "name": "METRIC_INGESTED_COUNT",
+            "type": "kpi",
+            "note": "ingested watermark from ec-gateway"
+          },
+          {
+            "name": "METRIC_RECON_JOB_INGESTED_COUNT",
+            "type": "gauge",
+            "cardinalityWarn": "high-cardinality tags"
+          },
+          {
+            "name": "METRIC_RECON_JOB_RECONCILED_COUNT",
+            "type": "gauge"
+          }
+        ],
+        "gap": "/source errors NOT separately counted (only bootstrap-config path emits API error counter)."
+      },
+      "ec-review-service": {
+        "confidence": "high",
+        "groupName": "ec.review_service",
+        "unitEnum": [
+          "messages",
+          "ms"
+        ],
+        "tags": [
+          "tenant"
+        ],
+        "instruments": [
+          "@ApiMetricName -> ApiInterceptor.afterCompletion",
+          "TenantLatencyHistogram (LATENCY_HISTOGRAM_CACHE)",
+          "ErrorRateCounter"
+        ],
+        "perEndpointSeriesRule": "for each @ApiMetricName value V -> emits V_hit_rate (counter), V_error_counter (error), and a per-V latency histogram",
+        "apiMetricNames": [
+          "create_reviewer_group",
+          "bulk_create_reviewer_groups",
+          "get_reviewer_groups_list",
+          "get_reviewer_group_members",
+          "delete_reviewer_group",
+          "update_reviewer_group",
+          "add_reviewer_group_to_queues",
+          "remove_reviewer_group_from_queues",
+          "get_reviewer_roles_for_queue",
+          "fetch_pipelines_by_reviewerId",
+          "get_pipeline_reviewers",
+          "get_reviewer_group_ids_for_pipeline",
+          "get_pipeline_assignments",
+          "import_csv_api",
+          "export_csv_api",
+          "get_review_entitlements_by_pipeline",
+          "delete_review_entitlements_by_pipeline"
+        ],
+        "note": "@RecordLatency exists but is DEAD CODE here (no aspect). Kafka consumer emits no @KafkaConsumerMetricName; single CDC consumer for surveillance-pipelines."
+      },
+      "ec-manual-runs-service": {
+        "confidence": "high",
+        "groupName": "(not read)",
+        "instruments": [
+          "@ApiMetricName -> ApiInterceptor",
+          "@KafkaConsumerMetricName (2 consumers)",
+          "ConsumptionRateCounter.increment('{X}_consumption_rate')",
+          "ElapsedTimeMetric.capture('{X}_consumption_latency')",
+          "LookbackStatusCounter",
+          "RemediationSearchMetrics"
+        ],
+        "apiMetricNames": [
+          "initiate_api",
+          "status_api",
+          "pipeline_status_api",
+          "post_migration_initiate_api",
+          "lookback_api",
+          "remediate_api",
+          "get_remediation_status_api"
+        ],
+        "kafkaConsumerMetricNames": [
+          "result_chunk_event_consumption",
+          "remediation_dlt_consumption"
+        ],
+        "series": [
+          {
+            "name": "status_check_request_rate",
+            "type": "counter"
+          },
+          {
+            "name": "status_check_request_latency",
+            "type": "latency"
+          },
+          {
+            "name": "status_check_request_error_counter",
+            "type": "error_counter"
+          },
+          {
+            "name": "lookback_athena_result_guardrail_exceeded_total",
+            "type": "counter",
+            "meaning": "Athena result set exceeded max (default 500000) -> run FAILED"
+          },
+          {
+            "name": "remediation_search_consumption_rate",
+            "type": "counter"
+          },
+          {
+            "name": "remediation_search_consumption_latency",
+            "type": "latency"
+          },
+          {
+            "name": "remediation_search_error_counter",
+            "type": "error_counter"
+          }
+        ],
+        "perConsumerRule": "each consumer emits {X}_consumption_rate + {X}_consumption_latency (X in {quota_window, job_request_config, qualified_comm_query_result, result_chunk_event, remediation_dlt, remediation_snapshot_cdc_event})"
+      },
+      "ec-echo-engine": {
+        "confidence": "high",
+        "groupName": "(not read)",
+        "series": [
+          {
+            "name": "AUDIT_ADAPTER_CONSUMPTION_COUNTER",
+            "type": "counter",
+            "emittedAt": "EchoActionAuditAdapter"
+          },
+          {
+            "name": "MONGO_OPERATION_LATENCY",
+            "type": "latency",
+            "tags": [
+              "operation",
+              "collection"
+            ],
+            "objects": [
+              "upsertEchoCandidate",
+              "findEchoCandidates"
+            ]
+          },
+          {
+            "name": "MONGO_OPERATION_ERROR_COUNTER",
+            "type": "error_counter"
+          },
+          {
+            "name": "bootstrap_config_api_error_counter",
+            "type": "error_counter",
+            "onlyForPaths": [
+              "bootstrap-config"
+            ]
+          }
+        ],
+        "dltErrorCounters": {
+          "note": "each of 4 consumers has a @DltHandler that logs kafka_exception-* headers and increments an error counter, tagged by infrastructure ErrorCode (KAFKA_*/MONGO_* + Severity)"
+        },
+        "note": "@RecordLatency/LatencyRecordingAspect were DELETED; timings are inline ElapsedTimeMetric now."
+      }
+    }
+  }
+}

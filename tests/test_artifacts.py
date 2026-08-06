@@ -145,3 +145,25 @@ def test_incident_summary_handles_empty_investigation():
     assert "info" in sev.lower()                      # no events → INFO
     assert "no root-cause hypothesis" in cause.lower()  # honest, no invention
     assert "Outstanding Questions" not in headings      # omitted when there are none
+
+
+def test_incident_summary_uses_the_descriptive_narrative():
+    """An artifact is a document someone reads end to end, so it takes the
+    narrative — the same reason the Workspace panel does. The chat headline is
+    written to be scanned, not circulated."""
+    inv = make_investigation()
+    inv.narrative = (
+        "The 09:02 deploy changed cache key generation, so reads that had been "
+        "served from cache went to the database and checkout latency rose."
+    )
+    doc = render_artifact("incident_summary", inv, incident_id="inc-1")
+    body = next(s.body for s in doc.sections if s.heading == "Summary")
+
+    assert "cache key generation" in body
+
+
+def test_incident_summary_falls_back_to_the_headline_without_a_narrative():
+    doc = render_artifact("incident_summary", make_investigation(), incident_id="inc-1")
+    body = next(s.body for s in doc.sections if s.heading == "Summary")
+
+    assert "Checkout latency rose" in body

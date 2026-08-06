@@ -41,8 +41,9 @@ function escapeHtml(s) {
 function renderMarkdown(text) {
   const lines = (text || "").split("\n");
   let html = "";
-  let inList = false;
-  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  let inList = false, liOpen = false;
+  const closeLi = () => { if (liOpen) { html += "</li>"; liOpen = false; } };
+  const closeList = () => { closeLi(); if (inList) { html += "</ul>"; inList = false; } };
   for (const raw of lines) {
     const line = raw.trimEnd();
     let m;
@@ -52,7 +53,17 @@ function renderMarkdown(text) {
       html += `<h${level}>${inline(m[1])}</h${level}>`;
     } else if ((m = line.match(/^[-*]\s+(.*)$/))) {
       if (!inList) { html += "<ul>"; inList = true; }
-      html += `<li>${inline(m[1])}</li>`;
+      closeLi();
+      html += `<li>${inline(m[1])}`;
+      liOpen = true;
+    } else if (liOpen && (m = line.match(/^\s{2,}(\S.*)$/))) {
+      // An indented line belongs to the claim above it — the measurement the
+      // claim rests on. It must stay INSIDE the <li>, or the reply reads as a
+      // list of assertions followed by a pile of orphaned numbers.
+      html += `<div class="measure">${inline(m[1])}</div>`;
+    } else if (/^[A-Z][^.!?]{0,40}:$/.test(line)) {
+      closeList();
+      html += `<h4 class="sec">${inline(line.slice(0, -1))}</h4>`;
     } else if (line === "") {
       closeList();
     } else {
@@ -66,7 +77,12 @@ function renderMarkdown(text) {
   function inline(s) {
     return escapeHtml(s)
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`(.+?)`/g, "<code>$1</code>");
+      .replace(/`(.+?)`/g, "<code>$1</code>")
+      // Confidence travels through persistence and copy-to-clipboard as the
+      // plain token "[high]", so the chip is built here at render time — which
+      // means reloaded conversations get chips too, not just the live turn.
+      .replace(/\s*\[(low|medium|high)\]/g,
+               ' <span class="conf conf-$1">$1</span>');
   }
 }
 
@@ -557,6 +573,18 @@ function sectionBody(s) {
     case "kv":
       return s.items.map((i) =>
         `<div class="kv"><span class="k">${escapeHtml(i.label)}</span>${confChip(i.value)}</div>`).join("");
+    case "mapping":
+      return s.items.map((i) =>
+        `<div class="kv"><span class="k">${escapeHtml(i.label)}</span>` +
+        `<span class="v">${escapeHtml(i.value)}</span></div>`).join("");
+    case "gaps":
+      return s.items.map((g) => {
+        const label = g.gap_kind === "no_data_trap" ? "reads green, no data" : "no monitor";
+        const reason = g.reason ? `<div class="gap-reason">${escapeHtml(g.reason)}</div>` : "";
+        const check = g.check ? `<div class="gap-check">Check: ${escapeHtml(g.check)}</div>` : "";
+        return `<div class="gap"><div class="gap-topic">${escapeHtml(g.topic)}` +
+          `<span class="gap-kind">${escapeHtml(label)}</span></div>${reason}${check}</div>`;
+      }).join("");
     default:
       return "";
   }

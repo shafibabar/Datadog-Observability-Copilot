@@ -264,6 +264,8 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     backend is available (no API key and no `claude` CLI) so the app degrades
     gracefully without crashing. `cli_available` is injectable for tests."""
     from app.guard_classifier import classify_relevance
+    from app.knowledge.loader import load_knowledge
+    from app.knowledge.vocabulary import build_vocabulary
     from app.monitors.index import build_monitors_index, service_vocabulary
     from app.reasoning.llm import cli_available as _detect_cli
 
@@ -294,17 +296,29 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
         llm = ClaudeCliClient(model_fast=settings.model_fast, model_deep=settings.model_deep)
 
-    engine = ReasoningEngine(source, llm, monitors_index=monitors_index)
+    # EC domain knowledge: how people actually talk about this platform. Shipped
+    # with the package, so this needs no configuration; a missing or malformed
+    # file degrades to an empty base and everything below still works.
+    knowledge = load_knowledge()
+    vocabulary = build_vocabulary(knowledge)
+
+    engine = ReasoningEngine(
+        source, llm, monitors_index=monitors_index,
+        vocabulary=vocabulary, knowledge=knowledge,
+    )
     store = WorkspaceStore(settings.workspace_db)
-    # On-topic vocabulary: the hand-listed COPILOT_PLATFORM_* terms PLUS the service
-    # phrases implied by the metrics actually in scope ("ec.quota_manager.x" ->
-    # "quota manager"). That second half is what lets a namespace like `ec.*` make
-    # hundreds of real service names on-topic with no extra configuration.
+    # On-topic vocabulary, from three sources: the hand-listed COPILOT_PLATFORM_*
+    # terms, the service phrases implied by the metrics actually in scope
+    # ("ec.quota_manager.x" -> "quota manager"), and the EC knowledge layer's own
+    # phrasings ("sampler", "gateway board"). The second makes a namespace like
+    # `ec.*` self-configuring; the third covers the words people use that appear
+    # in no metric name at all.
     guard_extra_vocabulary = (
         settings.platform_metrics + settings.platform_log_sources
         + settings.platform_trace_services + settings.platform_tenants
         + settings.platform_environments
         + service_vocabulary(source.list_metrics())
+        + vocabulary.guard_phrases()
     )
 
     # Stage-2 guard classifier: semantic relevance via the fast model. Errors

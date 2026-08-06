@@ -84,6 +84,63 @@ def test_evidence_catalog_covers_events_and_metrics():
     assert "evt:e1" in context
 
 
+def test_metric_evidence_carries_structured_numbers_not_only_prose():
+    """The reply has to print the metric, its value and its unit. Re-parsing
+    them out of `detail` would be fragile, so they are first-class fields."""
+    src = ReplayAdapter()
+    catalog, _ = build_evidence_catalog(src)
+    metric = catalog["met:api.latency.p95"]
+
+    assert metric.ref == "api.latency.p95"
+    assert metric.has_data
+    assert metric.points > 0
+    assert metric.unit
+    assert metric.baseline is not None
+    assert metric.latest is not None
+    assert metric.extreme is not None
+
+
+def test_event_evidence_carries_its_time_and_severity():
+    catalog, _ = build_evidence_catalog(ReplayAdapter())
+    event = catalog["evt:e1"]
+    assert event.time
+    assert event.severity
+
+
+def test_a_metric_that_returned_no_data_is_still_catalogued():
+    """"We looked and found nothing" is a real answer, and citable for an
+    Unknown. Silently dropping it makes a queried metric indistinguishable from
+    one that was never queried at all."""
+    from datetime import datetime, timezone
+
+    from app.telemetry.base import DataSource
+    from app.telemetry.models import MetricSeries
+
+    class SilentSource(DataSource):
+        source_type = "silent"
+
+        def list_metrics(self):
+            return ["ec.quota_manager.sampling_stats_counter"]
+
+        def get_metric(self, metric, start=None, end=None, scope=None):
+            return MetricSeries(metric=metric, unit="messages", points=[])
+
+        def get_events(self, start=None, end=None, scope=None):
+            return []
+
+        def time_range(self):
+            now = datetime.now(timezone.utc)
+            return now, now
+
+    catalog, context = build_evidence_catalog(SilentSource())
+    entry = catalog["met:ec.quota_manager.sampling_stats_counter"]
+
+    assert entry.has_data is False
+    assert entry.points == 0
+    assert "no data" in entry.detail.lower()
+    assert "no data" in context.lower()
+
+
 # --- llm helpers ----------------------------------------------------------
 
 def test_extract_json_plain():
@@ -217,6 +274,171 @@ class FakeLLM:
     def complete(self, system, user, deep=False):
         self.last = {"system": system, "user": user, "deep": deep}
         return self.payload
+
+
+def _ec_vocabulary():
+    from app.knowledge.loader import load_knowledge
+    from app.knowledge.vocabulary import build_vocabulary
+
+    return build_vocabulary(load_knowledge())
+
+
+def test_prompt_carries_the_resolved_terms_when_knowledge_is_wired():
+    """The model must see HOW the question was mapped, so a claim can name the
+    service and lifecycle stage rather than paraphrase the question."""
+    llm = FakeLLM(_CANNED)
+    engine = ReasoningEngine(ReplayAdapter(), llm, vocabulary=_ec_vocabulary())
+    engine.investigate("is the sampler backed up?")
+
+    prompt = llm.last["user"]
+    assert "RESOLVED TERMS" in prompt
+    assert "ec-surveillance-quota-manager" in prompt
+
+
+def test_prompt_carries_coverage_gaps_so_the_model_cannot_claim_coverage():
+    from app.knowledge.loader import load_knowledge
+
+    llm = FakeLLM(_CANNED)
+    engine = ReasoningEngine(
+        ReplayAdapter(), llm,
+        vocabulary=_ec_vocabulary(), knowledge=load_knowledge(),
+    )
+    engine.investigate("are we backed up anywhere?")
+
+    prompt = llm.last["user"]
+    assert "COVERAGE GAPS" in prompt
+    assert "consumer lag" in prompt.lower()
+
+
+def test_prompt_is_unchanged_when_no_knowledge_is_wired():
+    """Knowledge is additive — an engine built without it must produce exactly
+    the prompt it produced before this layer existed."""
+    llm = FakeLLM(_CANNED)
+    ReasoningEngine(ReplayAdapter(), llm).investigate("is the sampler backed up?")
+
+    prompt = llm.last["user"]
+    assert "RESOLVED TERMS" not in prompt
+    assert "COVERAGE GAPS" not in prompt
+
+
+def test_an_unrecognised_question_adds_no_resolved_terms_block():
+    llm = FakeLLM(_CANNED)
+    engine = ReasoningEngine(ReplayAdapter(), llm, vocabulary=_ec_vocabulary())
+    engine.investigate("qwertyuiop zxcvbnm")
+    assert "RESOLVED TERMS" not in llm.last["user"]
+
+
+# --- the two-surface split: terse chat reply vs descriptive workspace ------
+
+_CANNED_TWO_SURFACE = """```json
+{
+  "summary": "Checkout p95 hit 480ms, 4.1x its 117ms baseline, from 09:02.",
+  "narrative": "A deploy of v2.4.1 at 09:02 changed cache key generation, so the hit ratio fell and reads that had been served from cache went to the database. Latency rose across checkout within four minutes. A rollback at 09:41 returned latency to baseline, which supports the deploy as cause rather than a coincident traffic change.",
+  "facts": [
+    {"claim": "API p95 latency spiked to 480ms", "confidence": "high",
+     "evidence": ["met:api.latency.p95"]}
+  ],
+  "hypotheses": [], "recommendations": [], "unknowns": []
+}
+```"""
+
+
+def test_investigation_separates_the_headline_from_the_narrative():
+    """The chat reply leads with one quantitative sentence; the Workspace panel
+    gets the descriptive read. Two fields, one reasoning pass."""
+    inv = ReasoningEngine(ReplayAdapter(), FakeLLM(_CANNED_TWO_SURFACE)).investigate("why?")
+
+    assert inv.summary.startswith("Checkout p95")
+    assert len(inv.summary) < 120
+    assert "cache key generation" in inv.narrative
+    assert len(inv.narrative) > len(inv.summary)
+
+
+def test_narrative_falls_back_to_the_headline_when_the_model_omits_it():
+    inv = ReasoningEngine(ReplayAdapter(), FakeLLM(_CANNED)).investigate("why?")
+    assert inv.narrative == inv.summary
+
+
+def test_system_prompt_demands_a_quantitative_headline_and_a_narrative():
+    from app.reasoning.engine import _SYSTEM
+
+    low = _SYSTEM.lower()
+    assert "narrative" in low
+    assert "number" in low
+
+
+def test_coverage_gaps_are_recorded_deterministically_not_asked_of_the_model():
+    """The model is not asked for gaps and cannot omit them — they come from the
+    dictionary, so "no alert is firing" can never be reported as health."""
+    from app.knowledge.loader import load_knowledge
+
+    engine = ReasoningEngine(
+        ReplayAdapter(), FakeLLM(_CANNED),
+        vocabulary=_ec_vocabulary(), knowledge=load_knowledge(),
+    )
+    inv = engine.investigate("are we backed up anywhere?")
+
+    assert inv.gaps
+    assert inv.gaps[0].kind == "no_monitor"
+    assert "consumer_lag" in inv.gaps[0].topic
+
+
+def test_no_gaps_are_recorded_for_a_fully_covered_question():
+    from app.knowledge.loader import load_knowledge
+
+    engine = ReasoningEngine(
+        ReplayAdapter(), FakeLLM(_CANNED),
+        vocabulary=_ec_vocabulary(), knowledge=load_knowledge(),
+    )
+    assert engine.investigate("how slow is the policy api?").gaps == []
+
+
+def test_the_question_mapping_is_recorded_on_the_investigation():
+    engine = ReasoningEngine(ReplayAdapter(), FakeLLM(_CANNED), vocabulary=_ec_vocabulary())
+    mapping = engine.investigate("is the sampler backed up?").mapping
+
+    assert mapping is not None
+    assert mapping.intent == "GET_LAG"
+    assert "ec-surveillance-quota-manager" in mapping.services
+
+
+def test_no_mapping_is_recorded_without_knowledge():
+    inv = ReasoningEngine(ReplayAdapter(), FakeLLM(_CANNED)).investigate("anything")
+    assert inv.mapping is None
+    assert inv.gaps == []
+
+
+def test_metric_evidence_is_attributed_to_its_lifecycle_stage():
+    """"which phase/stage/service did this come from" — answerable because the
+    knowledge layer maps a metric's service segment onto the lifecycle."""
+    from datetime import datetime, timezone
+
+    from app.telemetry.base import DataSource
+    from app.telemetry.models import MetricPoint, MetricSeries
+
+    class IndexerSource(DataSource):
+        source_type = "fake"
+
+        def list_metrics(self):
+            return ["ec.indexer.ingested_communication_consumption_rate"]
+
+        def get_metric(self, metric, start=None, end=None, scope=None):
+            point = MetricPoint(timestamp=datetime.now(timezone.utc), value=7.0)
+            return MetricSeries(metric=metric, unit="messages", points=[point])
+
+        def get_events(self, start=None, end=None, scope=None):
+            return []
+
+        def time_range(self):
+            now = datetime.now(timezone.utc)
+            return now, now
+
+    engine = ReasoningEngine(IndexerSource(), FakeLLM(_CANNED), vocabulary=_ec_vocabulary())
+    inv = engine.investigate("how many messages did the indexer process?")
+
+    entry = inv.evidence["met:ec.indexer.ingested_communication_consumption_rate"]
+    assert entry.service == "ec-indexer"
+    assert entry.stage == "8 indexed"
 
 
 def test_engine_produces_structured_grounded_investigation():

@@ -39,25 +39,46 @@ def build_evidence_catalog(
     for e in events:
         eid = f"evt:{e.id}"
         detail = f"[{e.timestamp:%H:%M}] {e.title} (source={e.source.value}, severity={e.severity.value})"
-        catalog[eid] = Evidence(id=eid, kind="event", ref=e.id, detail=detail)
+        catalog[eid] = Evidence(
+            id=eid, kind="event", ref=e.id, detail=detail,
+            service=e.service, time=f"{e.timestamp:%H:%M}", severity=e.severity.value,
+        )
         lines.append(f"{eid}: {detail}")
 
     registered = source.list_metrics()
     names = [m for m in metrics if m in registered] if metrics is not None else registered
     for name in names:
         series = source.get_metric(name, scope=scope)
-        if not series.points:
-            continue
         mid = f"met:{name}"
+
+        # A queried-but-empty metric is kept, clearly marked. Dropping it made a
+        # metric we looked at indistinguishable from one we never asked about,
+        # and left the reader unable to tell "healthy" from "no signal" — the
+        # live org's metrics are sparse enough for that to matter.
+        if not series.points:
+            detail = f"{name}: no data returned in the selected window"
+            catalog[mid] = Evidence(
+                id=mid, kind="metric", ref=name, detail=detail,
+                service=series.service, unit=series.unit, has_data=False, points=0,
+            )
+            lines.append(f"{mid}: {detail}")
+            continue
+
         baseline = series.points[0].value
         latest = series.points[-1].value
         # "extreme" = the point that deviates most from baseline (the spike/dip).
         extreme = max(series.points, key=lambda p: abs(p.value - baseline)).value
         detail = (
             f"{name} ({series.unit}) on {series.service or 'unknown'}: "
-            f"baseline={baseline}, peak/min={extreme}, latest={latest}"
+            f"baseline={baseline}, peak/min={extreme}, latest={latest}, "
+            f"points={len(series.points)}"
         )
-        catalog[mid] = Evidence(id=mid, kind="metric", ref=name, detail=detail)
+        catalog[mid] = Evidence(
+            id=mid, kind="metric", ref=name, detail=detail,
+            service=series.service, unit=series.unit, has_data=True,
+            points=len(series.points),
+            baseline=baseline, latest=latest, extreme=extreme,
+        )
         lines.append(f"{mid}: {detail}")
 
     return catalog, "\n".join(lines)

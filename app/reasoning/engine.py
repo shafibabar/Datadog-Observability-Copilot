@@ -39,8 +39,22 @@ _SYSTEM = (
     "\n\n"
     + get_domain_context()
     + "\n\n"
+    "## Writing style — this is a working tool, not a report\n"
+    "Two surfaces are produced from one pass, and they differ in DEPTH, never in facts:\n"
+    "- `summary` is the headline shown in chat. ONE sentence, at most 25 words, and it "
+    "MUST contain a concrete number (a value, a multiple, a count or a time). "
+    "Lead with the measurement, not with context.\n"
+    "- `narrative` is the descriptive read shown in the Investigation Workspace. "
+    "3-6 sentences explaining the mechanism: what changed, what it caused, and why the "
+    "evidence supports that ordering. This is where explanation belongs.\n"
+    "Every `claim` is a single specific statement of at most 20 words. State the "
+    "measurement and the subject. Do NOT restate the question, narrate your process, "
+    "describe what you are about to do, or pad with phrases like 'it appears that' or "
+    "'further investigation is warranted'. If a number is known, give it with its unit.\n"
+    "Prefer fewer, sharper claims over many vague ones.\n"
+    "\n\n"
     "Respond with a single JSON object and nothing else, using this shape:\n"
-    '{"summary": str, '
+    '{"summary": str, "narrative": str, '
     '"facts": [{"claim": str, "confidence": "low|medium|high", "evidence": [id, ...]}], '
     '"hypotheses": [{"statement": str, "confidence": "low|medium|high", '
     '"supporting_evidence": [id, ...], "contradicting_evidence": [id, ...], '
@@ -48,6 +62,12 @@ _SYSTEM = (
     '"recommendations": [{"claim": str, "confidence": "low|medium|high", "evidence": [id, ...]}], '
     '"unknowns": [{"claim": str, "confidence": "low|medium|high", "evidence": [id, ...]}]}'
 )
+
+def _clean(text: object) -> str:
+    """Collapse the whitespace a JSON string literal picks up when the model
+    wraps it across lines."""
+    return " ".join(str(text or "").split())
+
 
 def _format_history(history: list[tuple[str, str]] | None, limit: int) -> str:
     """Render the most recent turns as a compact transcript. Bounded by `limit`
@@ -64,6 +84,7 @@ def _build_user_prompt(
     question: str | None,
     transcript: str,
     monitors_context: str = "",
+    knowledge_context: str = "",
 ) -> str:
     ask = question or "Give an overall investigation of the current system state."
     parts = [
@@ -71,6 +92,8 @@ def _build_user_prompt(
     ]
     if monitors_context:
         parts.append(f"\n{monitors_context}\n")
+    if knowledge_context:
+        parts.append(f"\n{knowledge_context}\n")
     parts.extend([
         transcript,
         f"QUESTION: {ask}\n\n",
@@ -86,11 +109,18 @@ class ReasoningEngine:
         llm: LLMClient,
         history_limit: int = 6,
         monitors_index: MonitorsIndex | None = None,
+        vocabulary=None,
+        knowledge=None,
     ) -> None:
         self._source = source
         self._llm = llm
         self._history_limit = history_limit
         self._monitors_index = monitors_index
+        # EC domain knowledge (app.knowledge). Both optional and purely
+        # additive: without them the engine builds exactly the prompt it built
+        # before this layer existed.
+        self._vocabulary = vocabulary
+        self._knowledge = knowledge
 
     def investigate(
         self,
@@ -115,8 +145,10 @@ class ReasoningEngine:
                 question or "", history,
                 self._monitors_index or MonitorsIndex(monitors=[], dashboards=[], repo_path=""),
                 available=set(registry),
+                vocabulary=self._vocabulary,
             )
         catalog, context = build_evidence_catalog(self._source, scope, metrics=selected)
+        self._attribute(catalog)
         timeline = build_timeline(self._source.get_events(scope=scope))
 
         # The configured-monitors index is part of the system's ground truth, so
@@ -127,15 +159,105 @@ class ReasoningEngine:
             monitors_context = get_monitors_context(self._monitors_index)
 
         transcript = _format_history(history, self._history_limit)
-        prompt = _build_user_prompt(context, question, transcript, monitors_context)
+        prompt = _build_user_prompt(
+            context, question, transcript, monitors_context,
+            self._knowledge_context(question),
+        )
         raw = self._llm.complete(_SYSTEM, prompt, deep=True)
         data = extract_json(raw)
         if not isinstance(data, dict):
             raise ValueError("Expected a JSON object from the model")
 
-        return self._assemble(data, catalog, timeline, question)
+        return self._assemble(
+            data, catalog, timeline, question,
+            gaps=self._gaps(question), mapping=self._mapping(question),
+        )
 
-    def _assemble(self, data, catalog, timeline, question) -> Investigation:
+    # --- knowledge-derived, deterministic ----------------------------------
+
+    def _attribute(self, catalog) -> None:
+        """Stamp each metric with the service and lifecycle stage it came from,
+        so a claim can say WHERE its number originated. Purely additive: with no
+        vocabulary, or for a metric the knowledge layer doesn't recognise, the
+        fields stay None and rendering simply omits them."""
+        if self._vocabulary is None:
+            return
+        for entry in catalog.values():
+            if entry.kind != "metric":
+                continue
+            service, stage = self._vocabulary.attribute(entry.ref)
+            if service:
+                entry.service = service
+            if stage:
+                entry.stage = stage
+
+    def _gaps(self, question: str | None):
+        if self._vocabulary is None or self._knowledge is None or not question:
+            return []
+        from app.knowledge.gaps import detection_gaps
+        from app.reasoning.models import CoverageGap
+
+        return [
+            CoverageGap(topic=g.topic, kind=g.kind, reason=g.reason, check=g.check)
+            for g in detection_gaps(question, self._knowledge, self._vocabulary)
+        ]
+
+    def _mapping(self, question: str | None):
+        if self._vocabulary is None or not question:
+            return None
+        from app.knowledge.interpret import interpret
+        from app.reasoning.models import QuestionMapping
+
+        result = interpret(question, self._vocabulary)
+        if result.is_empty:
+            return None
+        return QuestionMapping(
+            intent=result.intent,
+            services=list(result.services),
+            stages=[f"{order} {name}" for _repo, order, name in result.stages],
+            metric_type=result.metric_type,
+            window=result.time_range,
+            terms=[
+                f"{phrase} → {canonical}"
+                for phrase, kind, canonical in result.matched
+                if kind in ("service", "concept", "object", "monitor", "dashboard")
+                and phrase != canonical
+            ],
+        )
+
+    def _knowledge_context(self, question: str | None) -> str:
+        """How this question maps onto the platform, plus anything the platform
+        cannot actually answer.
+
+        The gaps block matters as much as the terms: without it the model can
+        conclude "no alerts firing, so we're healthy" about a signal that has no
+        alert monitor at all. Both blocks are omitted entirely when nothing
+        resolved, so an unrecognised question costs no tokens.
+        """
+        if self._vocabulary is None or not question:
+            return ""
+
+        from app.knowledge.gaps import detection_gaps
+        from app.knowledge.interpret import interpret
+
+        blocks = []
+        terms = interpret(question, self._vocabulary).describe()
+        if terms:
+            blocks.append(terms)
+
+        if self._knowledge is not None:
+            gaps = detection_gaps(question, self._knowledge, self._vocabulary)
+            if gaps:
+                lines = "\n".join(f"- {gap.render()}" for gap in gaps)
+                blocks.append(
+                    "COVERAGE GAPS (no alert monitor exists for these — absence of "
+                    "an alert is NOT evidence of health; report them as Unknowns):\n"
+                    + lines
+                )
+
+        return "\n\n".join(blocks)
+
+    def _assemble(self, data, catalog, timeline, question, gaps=None, mapping=None) -> Investigation:
         def valid(ids) -> list[str]:
             return [i for i in (ids or []) if i in catalog]
 
@@ -163,13 +285,20 @@ class ReasoningEngine:
             if h.get("statement")
         ]
 
+        summary = data.get("summary", "")
         return Investigation(
             question=question,
-            summary=data.get("summary", ""),
+            summary=summary,
+            # An older model, or one that ignores the contract, may send no
+            # narrative. The Workspace still needs something to show, and the
+            # headline is the one thing guaranteed to be there.
+            narrative=_clean(data.get("narrative")) or summary,
             facts=objects("facts", ReasoningCategory.FACT),
             hypotheses=hypotheses,
             recommendations=objects("recommendations", ReasoningCategory.RECOMMENDATION),
             unknowns=objects("unknowns", ReasoningCategory.UNKNOWN),
             timeline=timeline,
             evidence=catalog,
+            gaps=gaps or [],
+            mapping=mapping,
         )

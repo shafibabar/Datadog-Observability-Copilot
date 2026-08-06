@@ -1,0 +1,1352 @@
+{
+  "$schema": "ec-surveillance-nlp-grammar/v1",
+  "metadata": {
+    "name": "EC Surveillance NLP Grammar & Synonym Map",
+    "description": "Maps non-technical user phrasing to code symbols AND runtime Kafka event/topic names across the 12 Enterprise Conduct (EC) surveillance repositories. Use `globalConcepts` for cross-repo synonym resolution, `stageLifecycle` for the communication journey, and `repositories` for per-repo disambiguation.",
+    "conventions": {
+      "{tenant}": "runtime-substituted tenant name",
+      "{windowToken}|{wt}": "runtime freeze/quota window version suffix",
+      "{sourceId}": "runtime manual-run / source id suffix",
+      "note": "The same word (e.g. 'queue', 'filter') can mean different things in different repos; always cross-check the repositories section."
+    },
+    "repos": [
+      "ec-gateway",
+      "ec-queue-qualifier",
+      "ec-surveillance-filter",
+      "ec-surveillance-policy-evaluator",
+      "ec-surveillance-quota-manager",
+      "ec-alerting-service",
+      "ec-indexer",
+      "ec-review-service",
+      "ec-reporting",
+      "ec-manual-runs-service",
+      "ec-centralised-audit",
+      "ec-echo-engine"
+    ]
+  },
+  "globalConcepts": [
+    {
+      "canonical": "pipeline",
+      "userSynonyms": [
+        "queue",
+        "supervision queue",
+        "review queue",
+        "channel",
+        "policy queue"
+      ],
+      "codeSymbols": [
+        "pipeline",
+        "pipelineId",
+        "PipelineConfig",
+        "PipelineConfigEntity",
+        "SupervisionQueueEntity",
+        "pipeline-catalog",
+        "surveillance-pipelines",
+        "PipelineSurveilledPopulation",
+        "queueMetadata",
+        "QueueMetadata.Queue"
+      ],
+      "runtimeNames": [
+        "ec.config-curator.{tenant}.surveillance-pipelines",
+        "pipeline-surveilled-population_{windowToken}",
+        "pipeline-catalog_{windowToken}",
+        "ec-reporting-pipelines_{windowToken}"
+      ],
+      "repos": [
+        "ec-queue-qualifier",
+        "ec-surveillance-filter",
+        "ec-review-service",
+        "ec-reporting",
+        "ec-centralised-audit"
+      ],
+      "note": "UI/user term is 'queue'; backend term is 'pipeline'. ec-review-service literally models a pipeline as SupervisionQueueEntity; ec-reporting maps queueMetadata.queue.id == pipelineId."
+    },
+    {
+      "canonical": "quota_sampling",
+      "userSynonyms": [
+        "sample",
+        "random sample",
+        "quota",
+        "percentage",
+        "spot check",
+        "random review",
+        "bucket"
+      ],
+      "codeSymbols": [
+        "SamplingMode",
+        "SamplingProfile",
+        "samplingProfile",
+        "QuotaWindowEntity",
+        "PipelineBucket",
+        "PipelineBucketEntity",
+        "ProbabilisticSamplingService",
+        "SamplingService.shouldSample",
+        "QuotaManagerStoreServiceV2",
+        "QUOTA_POLICY_RANDOM_SPLIT",
+        "QuotaPolicyRandomSplitModeBucketingStrategy",
+        "SamplingBucketRedisStorageRepository",
+        "HITS",
+        "RANDOM"
+      ],
+      "runtimeNames": [
+        "ec.config-curator.{tenant}.surveillance-sampling",
+        "ec.surveillance-quota-manager.{tenant}.quota-windows",
+        "SURVEILLED_COMMS_SAMPLED",
+        "SURVEILLED_COMMS_NOT_SAMPLED",
+        "ec.surveillance-quota-manager.not-sampled",
+        "ec.surveillance-quota-manager.random.not-sampled",
+        "ec.surveillance-quota-manager.random.ignored",
+        "ec.surveillance-quota-manager.ignored"
+      ],
+      "repos": [
+        "ec-surveillance-quota-manager",
+        "ec-reporting",
+        "ec-gateway"
+      ],
+      "note": "'quota' = target sampling percentage; 'sampling' = act of random selection. Two bucket prefixes: 'hits' (policy-matched) vs 'random'."
+    },
+    {
+      "canonical": "qualify",
+      "userSynonyms": [
+        "selected",
+        "picked up",
+        "belongs to",
+        "matched population",
+        "in scope",
+        "monitored"
+      ],
+      "codeSymbols": [
+        "PipelineQualifierService.qualifyIngestedCommunication",
+        "QualifiedCommunicationDto",
+        "QualifiedCommEvent",
+        "findMatchingSurveillancePipelineIds",
+        "IngestedCommunication",
+        "CommunicationParticipants"
+      ],
+      "runtimeNames": [
+        "ec.surveillance-qualifier.{tenant}.qualifications",
+        "ec.surveillance-gateway.outbox.{tenant}.qualifiedCommunication",
+        "qq.qualified",
+        "ec.surveillance-qualifier.{tenant}.qualifications-dlt"
+      ],
+      "repos": [
+        "ec-queue-qualifier",
+        "ec-surveillance-filter",
+        "ec-gateway"
+      ],
+      "note": "'Qualified' = the communication's participants match a pipeline's monitored population. 0 matches => routed to audit as not-qualified."
+    },
+    {
+      "canonical": "filter_evaluate",
+      "userSynonyms": [
+        "filtered",
+        "processed",
+        "ignored",
+        "flagged",
+        "matched",
+        "caught",
+        "passed the rule"
+      ],
+      "codeSymbols": [
+        "PolicyEvaluator.evaluate",
+        "evaluateFilter",
+        "FilterResult",
+        "MatcherResult.MATCHED",
+        "MatcherResult.NOT_MATCHED",
+        "PolicyEvaluationEvent",
+        "PolicyEvaluationOutput",
+        "PipelineExecutionOrchestrator",
+        "ignore policy",
+        "flag policy"
+      ],
+      "runtimeNames": [
+        "ec.surveillance-filter.{tenant}.evaluations",
+        "ec.surveillance-filter.{tenant}.not-qualified",
+        "ec.surveillance-filter.pipelines.filtered",
+        "ec.surveillance-filter.pipelines-filtering-failed",
+        "sf.qualified",
+        "sf.not.ignored",
+        "FILTERED",
+        "NOT_FILTERED",
+        "QUALIFIED",
+        "NOT_QUALIFIED"
+      ],
+      "repos": [
+        "ec-surveillance-filter",
+        "ec-reporting",
+        "ec-centralised-audit"
+      ],
+      "note": "'ignore' policies and 'flag' policies are both filter policies (policyType=ignore|flag). FILTERED/IGNORED is a terminating outcome."
+    },
+    {
+      "canonical": "policy",
+      "userSynonyms": [
+        "rule",
+        "lexicon",
+        "keyword list",
+        "scenario",
+        "AI model",
+        "search terms",
+        "criteria"
+      ],
+      "codeSymbols": [
+        "Policy",
+        "PolicyEntity",
+        "PolicyPayload",
+        "SearchCriteria",
+        "WordsAndPhrases",
+        "LibraryListEntity",
+        "surveillance-libraries",
+        "scenarioId",
+        "originPolicy",
+        "policyHit",
+        "CognitionWorkflowEntity"
+      ],
+      "runtimeNames": [
+        "ec.config-curator.{tenant}.surveillance-policies",
+        "ec.config-curator.{tenant}.surveillance-libraries",
+        "ec.surveillance-policy-evaluator.outbox.{tenant}.surveillancePolicyScenario"
+      ],
+      "repos": [
+        "ec-surveillance-filter",
+        "ec-surveillance-policy-evaluator",
+        "ec-centralised-audit"
+      ],
+      "note": "metadata policies = pass-through (no content scan); content policies = sent to Cognition/NLP. A 'scenario' is a Cognition AI rule mapped from a policy."
+    },
+    {
+      "canonical": "communication",
+      "userSynonyms": [
+        "message",
+        "email",
+        "comm",
+        "item",
+        "document",
+        "record",
+        "content"
+      ],
+      "codeSymbols": [
+        "IngestedCommunication",
+        "QualifiedCommunication",
+        "EnrichedCommunication",
+        "SurveilledEvent",
+        "SurveilledCommunication",
+        "SupervisedItem",
+        "BulkDocumentEntry",
+        "ManualRunEvent",
+        "BulkIndexEvent"
+      ],
+      "runtimeNames": [
+        "ec.ingestion.{tenant}.*",
+        "supBulkIndexingTopic_k8s",
+        "ec.surveillance-gateway.outbox.{tenant}.ingestedCommunication",
+        "eg.ingested"
+      ],
+      "repos": [
+        "ec-gateway",
+        "ec-queue-qualifier",
+        "ec-surveillance-filter",
+        "ec-indexer"
+      ],
+      "identifiers": [
+        "gcid",
+        "aggregateId",
+        "snapshotId",
+        "transcriptId",
+        "sourceId",
+        "documentId",
+        "clusterId",
+        "reconciliationToken"
+      ],
+      "note": "Same object is renamed at each stage: ingested -> qualified -> enriched -> surveilled -> supervisedItem."
+    },
+    {
+      "canonical": "alert",
+      "userSynonyms": [
+        "alert",
+        "flag",
+        "hit",
+        "flagged message",
+        "case",
+        "escalation",
+        "supervised item"
+      ],
+      "codeSymbols": [
+        "AlertOutbox",
+        "AlertOutboxPayload",
+        "AlertedCommunicationEvent",
+        "AlertGenerationConfig",
+        "SupervisedItem",
+        "SupervisedItemMetadata",
+        "alertfanout",
+        "SupervisedGroupBasedAlertGenerationStrategy",
+        "policyHit"
+      ],
+      "runtimeNames": [
+        "ec.alerting-service.{tenant}.alert-outbox",
+        "ec.alerting-service.{tenant}.alertedCommunication",
+        "alertedCommunication"
+      ],
+      "repos": [
+        "ec-alerting-service",
+        "ec-echo-engine",
+        "ec-reporting"
+      ],
+      "note": "'fanout' = one surveilled comm becomes multiple alerts, one per supervised group."
+    },
+    {
+      "canonical": "review",
+      "userSynonyms": [
+        "review",
+        "action",
+        "close",
+        "escalate",
+        "assign",
+        "disposition",
+        "mark as",
+        "reviewer"
+      ],
+      "codeSymbols": [
+        "ReviewerGroupEntity",
+        "SupervisionQueueEntity.ReviewerAssignment",
+        "ReviewEntitlements",
+        "ReviewerType",
+        "Level",
+        "Role",
+        "ReviewStateMetadataService",
+        "state",
+        "nextState",
+        "action",
+        "actionComment",
+        "bulkReview",
+        "reviewedAs",
+        "timeToClose",
+        "timeToAction"
+      ],
+      "runtimeNames": [
+        "review.v1 (ES index)",
+        "supervised_items (collection)"
+      ],
+      "repos": [
+        "ec-review-service",
+        "ec-alerting-service"
+      ],
+      "note": "ec-review-service is the authoritative source for reviewer groups, pipeline-reviewer assignments, and review entitlements."
+    },
+    {
+      "canonical": "echo",
+      "userSynonyms": [
+        "duplicate",
+        "echo",
+        "repeat",
+        "de-dupe",
+        "cancel",
+        "same message again"
+      ],
+      "codeSymbols": [
+        "EchoActionEvent",
+        "EchoCorrelationService.classifyAlert",
+        "EchoCorrelationResult.Echo",
+        "EchoCorrelationResult.Original",
+        "EchoCorrelationResult.OutOfOrder",
+        "EchoEngineStateEntity",
+        "EchoBehaviour",
+        "AlertClassification.ECHO",
+        "echo_cancellation",
+        "PolicyHitsHashGeneratorService",
+        "ECHO_ACTION_CLOSE",
+        "ECHO_ACTION_UPDATE"
+      ],
+      "runtimeNames": [
+        "ec.echo-engine.{tenant}.echoAction",
+        "ec.alerting-service.{tenant}.echo-outbox",
+        "ec.alerting-service.{tenant}.echoCommunication",
+        "echo_action_topic"
+      ],
+      "repos": [
+        "ec-echo-engine",
+        "ec-alerting-service",
+        "ec-reporting"
+      ],
+      "note": "Hash-based dedup of alerts; classifies as ORIGINAL (NOT_APPLICABLE) or ECHO (CLOSE/UPDATE)."
+    },
+    {
+      "canonical": "reprocess",
+      "userSynonyms": [
+        "re-run",
+        "replay",
+        "reprocess",
+        "lookback",
+        "backfill",
+        "historical run",
+        "re-index",
+        "on-demand"
+      ],
+      "codeSymbols": [
+        "ManualRunEvent",
+        "ManualRunController.initiateManualRun",
+        "LookbackController.initiateLookback",
+        "RemediationController.initiateRemediation",
+        "RemediationEvent",
+        "ParentReIndexEvent",
+        "POLICY_INDEX_REINDEX",
+        "PostMigrationManualRunRequest",
+        "RemediateRequest"
+      ],
+      "runtimeNames": [
+        "ec.surveillance-manual-run.{tenant}.ingestion",
+        "ec.surveillance-gateway.{tenant}.remediation",
+        "ec.on-demand.remediation-dlt",
+        "ec-surveillance-manual-run-{tenant}-qualified",
+        "ec-surveillance-manual-run-{tenant}-result-chunk",
+        "supActionIndexTopic_k8s"
+      ],
+      "repos": [
+        "ec-manual-runs-service",
+        "ec-gateway",
+        "ec-indexer",
+        "ec-surveillance-quota-manager"
+      ],
+      "note": "manual-run, lookback, remediation and on-demand are DISTINCT flows though users lump them as 're-run'."
+    },
+    {
+      "canonical": "index_storage",
+      "userSynonyms": [
+        "store",
+        "save",
+        "index",
+        "search",
+        "archive",
+        "upload"
+      ],
+      "codeSymbols": [
+        "ElasticsearchBulkIndexingService",
+        "BulkDocumentEntry",
+        "IndexerService",
+        "ElasticsearchIndexingService",
+        "ParentReIndexingService",
+        "IndexingGatewayClient",
+        "S3FileDownloader",
+        "miniIndexable",
+        "indexName",
+        "indexAlias"
+      ],
+      "runtimeNames": [
+        "supBulkIndexingTopic_k8s",
+        "ec.centralized.{tenant}.audit.indexer.event",
+        "surveil.av5 (ES index)",
+        "review.v1 (ES index)",
+        "supActionIndexTopic_k8s"
+      ],
+      "repos": [
+        "ec-indexer",
+        "ec-gateway"
+      ],
+      "note": "Parent doc = communication; child doc = audio enrichment/transcription."
+    },
+    {
+      "canonical": "audit_reconcile",
+      "userSynonyms": [
+        "track",
+        "audit",
+        "reconcile",
+        "did it finish",
+        "status",
+        "completion",
+        "lifecycle",
+        "count"
+      ],
+      "codeSymbols": [
+        "AuditEvent",
+        "CommunicationEventConsumer",
+        "QuotaWindowReconciliationEntity",
+        "reconToken",
+        "reconciliationToken",
+        "watermark",
+        "terminatingEventV3",
+        "processedByQuotaManager",
+        "AuditEventPipelineSummary",
+        "ReconCronJobScheduler",
+        "SourceReconScheduler"
+      ],
+      "runtimeNames": [
+        "ec.centralized.{tenant}.audit",
+        "ec.centralised-audit.outbox.{tenant}.windowReconciliation",
+        "ec.centralised-audit.source-reconciled",
+        "ec.centralised-audit.policy-evaluation-reconciled",
+        "ec.centralised-audit.{tenant}.cognitionReconciliation"
+      ],
+      "repos": [
+        "ec-centralised-audit",
+        "ec-queue-qualifier",
+        "ec-surveillance-quota-manager",
+        "ec-reporting"
+      ],
+      "note": "'watermark' = count of ingested comms fetched from ec-gateway for reconciliation."
+    },
+    {
+      "canonical": "reporting_metrics",
+      "userSynonyms": [
+        "report",
+        "stats",
+        "KPI",
+        "metrics",
+        "volume",
+        "throughput",
+        "corpus",
+        "count"
+      ],
+      "codeSymbols": [
+        "PipelineExecutionReport",
+        "KpiEvent",
+        "KpiEventConsumer",
+        "PipelinePerQueueKpiStats",
+        "MonitoredCorpus",
+        "IgnorePolicyCorpus",
+        "FilterPolicyCorpus",
+        "AlertedFlaggedCorpus",
+        "EchoUpdateClose",
+        "EventLogMessage",
+        "ConductAuditMessage"
+      ],
+      "runtimeNames": [
+        "ec.queue-qualifier.{tenant}.kpi-events",
+        "ec.surveillance-filter.{tenant}.kpi-events",
+        "ec.surveillance-quota-manager.{tenant}.kpi-events",
+        "conduct_audit_topic",
+        "eventloggingpublisher_k8s",
+        "ec.surveillance-outcome.{tenant}.job_request_config"
+      ],
+      "repos": [
+        "ec-reporting",
+        "ec-queue-qualifier",
+        "ec-surveillance-filter",
+        "ec-surveillance-quota-manager"
+      ]
+    },
+    {
+      "canonical": "population_participants",
+      "userSynonyms": [
+        "people",
+        "users",
+        "employees",
+        "monitored",
+        "who's watched",
+        "group",
+        "population"
+      ],
+      "codeSymbols": [
+        "SurveilledPopulation",
+        "MonitoredPopulationCalculator",
+        "participantIds",
+        "groupIds",
+        "CommunicationParticipants",
+        "QualifierSurveilledParticipants",
+        "expandGroupParticipants",
+        "PipelineSurveilledPopulation"
+      ],
+      "runtimeNames": [
+        "pipeline-surveilled-population_{windowToken}",
+        "ec-queue-qualifier-surveilled-participants_{windowToken}",
+        "/v1/tenants/{tenant}/window-tokens/{wt}/surveilled-population"
+      ],
+      "repos": [
+        "ec-queue-qualifier",
+        "ec-alerting-service",
+        "ec-manual-runs-service"
+      ],
+      "note": "groups are expanded into individual participants via ISS V2 Identity Service during freeze-window."
+    }
+  ],
+  "stageLifecycle": {
+    "description": "Ordered journey of a single communication through the pipeline. Each stage lists the owning repo, the runtime terminal/emit event names, and the code entity name at that stage.",
+    "stages": [
+      {
+        "order": 1,
+        "stage": "ingested",
+        "userSynonyms": [
+          "received",
+          "came in",
+          "arrived"
+        ],
+        "repo": "ec-gateway",
+        "codeEntity": "BulkIndexEvent / IngestedCommunicationOutbox",
+        "runtimeEvents": [
+          "supBulkIndexingTopic_k8s",
+          "ec.surveillance-gateway.outbox.{tenant}.ingestedCommunication",
+          "eg.ingested"
+        ]
+      },
+      {
+        "order": 2,
+        "stage": "qualified",
+        "userSynonyms": [
+          "selected",
+          "picked up",
+          "in scope"
+        ],
+        "repo": "ec-queue-qualifier",
+        "codeEntity": "QualifiedCommunicationDto",
+        "runtimeEvents": [
+          "ec.surveillance-qualifier.{tenant}.qualifications",
+          "qq.qualified"
+        ],
+        "altBranch": "not-qualified -> ec.centralized.{tenant}.audit"
+      },
+      {
+        "order": 3,
+        "stage": "filtered_evaluated",
+        "userSynonyms": [
+          "processed",
+          "ignored",
+          "passed rule"
+        ],
+        "repo": "ec-surveillance-filter",
+        "codeEntity": "PipelineEvaluationEvent / PolicyEvaluationOutput",
+        "runtimeEvents": [
+          "ec.surveillance-filter.{tenant}.evaluations",
+          "sf.qualified",
+          "sf.not.ignored"
+        ],
+        "terminalOutcomes": [
+          "FILTERED",
+          "NOT_FILTERED",
+          "ec.surveillance-filter.pipelines.filtered"
+        ]
+      },
+      {
+        "order": 4,
+        "stage": "policy_evaluated",
+        "userSynonyms": [
+          "scanned",
+          "AI checked",
+          "matched content"
+        ],
+        "repo": "ec-surveillance-policy-evaluator",
+        "codeEntity": "CognitionResponseEvent",
+        "runtimeEvents": [
+          "ec.surveillance-policy-evaluator.{tenant}.surveilled",
+          "pe.initiated",
+          "pe.evaluated"
+        ],
+        "branch": [
+          "metadata pass-through -> surveilled topic",
+          "content -> Cognition Kafka topic (CIMS/COMS)"
+        ],
+        "terminalOutcomes": [
+          "ec.surveillance-policy-evaluator.filtered",
+          "ec.surveillance-policy-evaluator.failed",
+          "ec.surveillance-policy-evaluator.coms-failed"
+        ]
+      },
+      {
+        "order": 5,
+        "stage": "surveilled_sampled",
+        "userSynonyms": [
+          "sampled",
+          "quota applied",
+          "random selected"
+        ],
+        "repo": "ec-surveillance-quota-manager",
+        "codeEntity": "SurveilledEntity / QuotaManagerStoreEntity",
+        "runtimeEvents": [
+          "ec.surveillance-quota-manager.{tenant}.surveilled-communication-outbox",
+          "qm.stored"
+        ],
+        "terminalOutcomes": [
+          "SURVEILLED_COMMS_SAMPLED",
+          "SURVEILLED_COMMS_NOT_SAMPLED",
+          "ec.surveillance-quota-manager.not-sampled",
+          "ec.surveillance-quota-manager.random.not-sampled"
+        ]
+      },
+      {
+        "order": 6,
+        "stage": "alerted",
+        "userSynonyms": [
+          "flagged",
+          "alert created",
+          "case opened"
+        ],
+        "repo": "ec-alerting-service",
+        "codeEntity": "SupervisedItem / AlertedCommunicationEvent",
+        "runtimeEvents": [
+          "ec.alerting-service.{tenant}.alert-outbox",
+          "ec.alerting-service.{tenant}.alertedCommunication"
+        ]
+      },
+      {
+        "order": 7,
+        "stage": "echo_detected",
+        "userSynonyms": [
+          "duplicate detected",
+          "deduped",
+          "cancelled"
+        ],
+        "repo": "ec-echo-engine",
+        "codeEntity": "EchoActionEvent / EchoCorrelationResult",
+        "runtimeEvents": [
+          "ec.echo-engine.{tenant}.echoAction",
+          "ec.alerting-service.{tenant}.echoCommunication"
+        ],
+        "classifications": [
+          "ORIGINAL/NOT_APPLICABLE",
+          "ECHO/CLOSE",
+          "ECHO/UPDATE",
+          "OUT_OF_ORDER"
+        ]
+      },
+      {
+        "order": 8,
+        "stage": "indexed",
+        "userSynonyms": [
+          "searchable",
+          "archived",
+          "stored"
+        ],
+        "repo": "ec-indexer",
+        "codeEntity": "BulkDocumentEntry",
+        "runtimeEvents": [
+          "ec.centralized.{tenant}.audit.indexer.event",
+          "surveil.av5",
+          "review.v1"
+        ]
+      },
+      {
+        "order": 9,
+        "stage": "reviewed",
+        "userSynonyms": [
+          "actioned",
+          "closed",
+          "escalated",
+          "assigned"
+        ],
+        "repo": "ec-review-service",
+        "codeEntity": "SupervisionQueueEntity / ReviewEntitlements",
+        "runtimeEvents": [
+          "supervised_items"
+        ]
+      },
+      {
+        "order": 10,
+        "stage": "audited_reconciled",
+        "userSynonyms": [
+          "tracked",
+          "completed",
+          "reconciled"
+        ],
+        "repo": "ec-centralised-audit",
+        "codeEntity": "AuditEvent / QuotaWindowReconciliationEntity",
+        "runtimeEvents": [
+          "ec.centralized.{tenant}.audit",
+          "ec.centralised-audit.outbox.{tenant}.windowReconciliation"
+        ]
+      },
+      {
+        "order": 11,
+        "stage": "reported",
+        "userSynonyms": [
+          "counted",
+          "report generated",
+          "KPI"
+        ],
+        "repo": "ec-reporting",
+        "codeEntity": "PipelineExecutionReport / EventLogMessage",
+        "runtimeEvents": [
+          "conduct_audit_topic",
+          "eventloggingpublisher_k8s"
+        ]
+      }
+    ]
+  },
+  "repositories": {
+    "ec-gateway": {
+      "role": "Ingestion entry point; bulk-index, manual-run and remediation event intake; watermark & ingestion tracking.",
+      "userSynonyms": [
+        "intake",
+        "entry",
+        "ingestion",
+        "front door"
+      ],
+      "codeSymbols": [
+        "BulkIndexingEventConsumer",
+        "ManualRunEventConsumer",
+        "RemediationEventConsumer",
+        "QuotaWindowTokenCdcEventConsumer",
+        "IngestedCommunicationService",
+        "ConductIndexStreamingService",
+        "RemediationEventForwardingService",
+        "GatewayWatermarkController",
+        "IngestionTrackerController",
+        "IngestedCommunicationOutbox",
+        "QualifiedCommunicationOutbox",
+        "ReconciliationWindowEntity",
+        "ManualRunEvent",
+        "BulkIndexEvent"
+      ],
+      "kafkaConsumed": [
+        "supBulkIndexingTopic_k8s",
+        "ec.surveillance-manual-run.{tenant}.ingestion",
+        "ec.surveillance-gateway.{tenant}.remediation",
+        "Quota Window CDC topic"
+      ],
+      "kafkaPublished": [
+        "{originalTopic}-conduct-ingestion-retry-{0,1}",
+        "{originalTopic}-conduct-ingestion-dlt",
+        "ec.surveillance-gateway.{tenant}.remediation",
+        "ec.on-demand.remediation-dlt",
+        "{manualRunTopic}-retry-{0,1}",
+        "{manualRunTopic}-dlt"
+      ],
+      "restApis": [
+        "GET /v1/{tenant}/watermark/{source}/{sourceId}/{reconciliationToken}",
+        "POST /v1/tenants/{tenantName}/bootstrap-config",
+        "POST /v1/tenants/{tenantName}/manual-run-bootstrap-config",
+        "POST /v1/{tenantName}/ingestion/tracker"
+      ],
+      "stores": [
+        "MongoDB: IngestedCommunicationOutbox",
+        "QualifiedCommunicationOutbox",
+        "ReconciliationWindowEntity",
+        "AWS S3 (indexable/miniIndexable)"
+      ],
+      "keyTerms": {
+        "watermark": "count of ingested comms",
+        "POLICY_INDEX_REINDEX": "reindex source that is forwarded to remediation",
+        "minify": "miniIndexable.json reduction"
+      }
+    },
+    "ec-queue-qualifier": {
+      "role": "Determines which surveillance pipelines a communication qualifies for based on monitored population.",
+      "aka": "ec-surveillance-pipeline-qualifier",
+      "userSynonyms": [
+        "queue matcher",
+        "who watches this",
+        "selection"
+      ],
+      "codeSymbols": [
+        "IngestedCommunicationConsumer",
+        "PipelineQualifierService.qualifyIngestedCommunication",
+        "QualifiedCommunicationPublisher",
+        "MonitoredPopulationCalculator",
+        "PipelineSurveilledPopulationFacade",
+        "FreezeWindowConsumer",
+        "KpiEventConsumer",
+        "PipelinePerQueueKpiStats",
+        "QueueMetadata"
+      ],
+      "kafkaConsumed": [
+        "ec.ingestion.{tenant}.*",
+        "ec.config-curator.{tenant}.surveillance-pipelines",
+        "ec.config-curator.{tenant}.surveillance-pipelines-migration-config",
+        "ec.config-curator.{tenant}.freeze-window",
+        "ec.surveillance-qualifier.{tenant}.qualifications",
+        "ec.queue-qualifier.{tenant}.kpi-events"
+      ],
+      "kafkaPublished": [
+        "ec.surveillance-qualifier.{tenant}.qualifications",
+        "ec.centralized.{tenant}.audit",
+        "{topic}-retry-{0,1}",
+        "{topic}-dlt"
+      ],
+      "restApis": [
+        "GET /v1/tenants/{tenantName}/window-tokens/{windowToken}/pipelines",
+        "GET /v1/tenants/{tenantName}/windows/{windowToken}/pipeline-surveilled-populations"
+      ],
+      "stores": [
+        "pipeline-surveilled-population_{windowToken}",
+        "pipeline-entity-mapping_{windowToken}",
+        "ec-queue-qualifier-surveilled-participants_{windowToken}",
+        "AWS S3"
+      ],
+      "keyTerms": {
+        "qualified": "matched >=1 pipeline",
+        "not-qualified": "0 pipeline matches -> audit",
+        "freeze-window": "config snapshot that expands groups to participants"
+      }
+    },
+    "ec-surveillance-filter": {
+      "role": "Evaluates ignore/filter policies against enriched communications.",
+      "userSynonyms": [
+        "rule engine",
+        "filter",
+        "policy check",
+        "ignore check"
+      ],
+      "codeSymbols": [
+        "QueueQualifierEventConsumer",
+        "ManualRunQualificationEventConsumer",
+        "PolicyEvaluator.evaluate",
+        "FilterResult",
+        "MatcherResult",
+        "PipelineExecutionOrchestrator",
+        "PipelineEvaluationEventPublisher",
+        "EnrichedCommunication",
+        "PolicyEntity",
+        "LibraryListEntity",
+        "SearchCriteria",
+        "WordsAndPhrases"
+      ],
+      "kafkaConsumed": [
+        "ec.surveillance-qualifier.{tenant}.qualifications",
+        "ec.surveillance-gateway.outbox.{tenant}.qualifiedCommunication",
+        "ec.config-curator.{tenant}.surveillance-policies",
+        "ec.config-curator.{tenant}.surveillance-libraries",
+        "ec.surveillance-filter.{tenant}.evaluations",
+        "ec.surveillance-filter.{tenant}.not-qualified"
+      ],
+      "kafkaPublished": [
+        "ec.surveillance-filter.{tenant}.evaluations",
+        "ec.surveillance-filter.{tenant}.not-qualified",
+        "ec.centralized.{tenant}.audit",
+        "ec.surveillance-filter.{tenant}.kpi-events",
+        "...qualifications-dlt (pipelines-filtering-failed)"
+      ],
+      "restApis": [
+        "GET .../policies/{policyId}",
+        "GET .../pipelines/{pipelineId}/policies?policyType=flag|ignore"
+      ],
+      "stores": [
+        "surveillance-pipelines_{wt}",
+        "surveillance-policies_{wt}",
+        "surveillance-libraries_{wt}",
+        "*-outbox"
+      ],
+      "keyTerms": {
+        "FILTERED": "ignored (terminal)",
+        "NOT_FILTERED": "passed",
+        "QUALIFIED": "matched a flag policy",
+        "ignore vs flag": "policyType values"
+      }
+    },
+    "ec-surveillance-policy-evaluator": {
+      "role": "Routes content policies to Cognition (NLP/AI) and metadata policies as pass-through; handles COMS/CIMS results.",
+      "userSynonyms": [
+        "AI evaluation",
+        "NLP scan",
+        "cognition",
+        "content check"
+      ],
+      "codeSymbols": [
+        "QualifiedCommConsumer",
+        "CognitionCOMSConsumer",
+        "CommEvaluationService.passThroughMatchedMetadataPolicies",
+        "CommEvaluationService.sentToCognitionForEvaluation",
+        "COMSEventHandler",
+        "CognitionService.createWorkflow",
+        "CognitionResponseEvent",
+        "CognitionWorkflowEntity",
+        "scenarioId"
+      ],
+      "kafkaConsumed": [
+        "ec.surveillance-filter.{tenant}.evaluations",
+        "samplingTopic_k8s (Cognition COMS)",
+        "ec.config-curator.{tenant}.freeze-window",
+        "Cognition CIMS per-tenant topic",
+        "ec.surveillance-policy-evaluator.{tenant}.surveilled"
+      ],
+      "kafkaPublished": [
+        "ec.surveillance-policy-evaluator.{tenant}.surveilled",
+        "Cognition Kafka topic (per-tenant)",
+        "ec.centralized.{tenant}.audit"
+      ],
+      "restApis": [
+        "POST /v1/tenants/{tenantName}/manual-run-bootstrap-config"
+      ],
+      "stores": [
+        "ec-surveillance-policy-evaluator-cognition-workflows",
+        "...-outbox",
+        "tenancy (alcatraz)"
+      ],
+      "keyTerms": {
+        "COMS": "Cognition output/results",
+        "CIMS": "Cognition input/ingestion",
+        "metadata policy": "pass-through",
+        "content policy": "needs NLP",
+        "PASS/FAIL/TIMEOUT/LATE/FILTER": "COMS statuses"
+      }
+    },
+    "ec-surveillance-quota-manager": {
+      "role": "Applies sampling/quota to surveilled comms; bucketing, quota windows, metadata event fanout.",
+      "userSynonyms": [
+        "sampler",
+        "quota engine",
+        "random selection"
+      ],
+      "codeSymbols": [
+        "SurveilledCommunicationConsumer",
+        "SurveilledNotQualifiedCommunicationConsumer",
+        "SamplingService.shouldSample",
+        "ProbabilisticSamplingService",
+        "QuotaPolicyRandomSplitModeBucketingStrategy",
+        "PipelineBucketService",
+        "QuotaManagerStoreServiceV2",
+        "QuotaWindowEntity",
+        "SamplingProfileEntity",
+        "MetadataEventPublisher",
+        "SamplingBucketRedisStorageRepository"
+      ],
+      "kafkaConsumed": [
+        "ec.surveillance-policy-evaluator.{tenant}.surveilled",
+        "ec.surveillance-filter.{tenant}.not-qualified",
+        "ec.centralised-audit.outbox.{tenant}.windowReconciliation",
+        "ec.surveillance-quota-manager.{tenant}.metadata-outbox",
+        "ec.config-curator.{tenant}.surveillance-sampling",
+        "ec.surveillance-quota-manager.{tenant}.kpi-events"
+      ],
+      "kafkaPublished": [
+        "${METADATA_TOPICS}",
+        "ec.surveillance-quota-manager.{tenant}.kpi-events",
+        "ec.surveillance-quota-manager.{tenant}.surveilled-communication-outbox (via Debezium)",
+        "ec.surveillance-quota-manager.{tenant}.quota-windows (via Debezium)"
+      ],
+      "restApis": [
+        "POST /v1/tenants/{tenantName}/create-next-quota-window",
+        "POST .../bootstrap-config",
+        "POST .../manual-run-bootstrap-config"
+      ],
+      "stores": [
+        "ec-surveillance-quota-manager-store_{sourceId}",
+        "...pipeline-buckets_{wt}",
+        "...sampling-profile_{wt}",
+        "...quota-windows",
+        "Redis (bucket counters)",
+        "AWS S3"
+      ],
+      "keyTerms": {
+        "SURVEILLED_COMMS_SAMPLED": "selected",
+        "SURVEILLED_COMMS_NOT_SAMPLED": "dropped",
+        "hits/random": "bucket prefixes",
+        "quota window": "time-bounded sampling period"
+      }
+    },
+    "ec-alerting-service": {
+      "role": "Generates alerts (supervised items) from surveilled comms; retention; echo outbox; fanout per supervised group.",
+      "userSynonyms": [
+        "alert generator",
+        "case creator",
+        "flagging"
+      ],
+      "codeSymbols": [
+        "SurveilledCommunicationConsumer",
+        "AlertOutboxConsumer",
+        "EchoOutboxConsumer",
+        "EchoActionEventConsumer",
+        "RetentionConsumer",
+        "AlertedCommEventPublisher",
+        "SurveilledCommService.createAlertOutbox",
+        "SupervisedGroupBasedAlertGenerationStrategy",
+        "AlertOutbox",
+        "SupervisedItem",
+        "SupervisedItemMetadata"
+      ],
+      "kafkaConsumed": [
+        "ec.surveillance-quota-manager.{tenant}.surveilled-communication-outbox",
+        "ec.config-curator.{tenant}.alert-generation-config",
+        "ec.config-curator.{tenant}.retention-policies",
+        "ec.alerting-service.{tenant}.alert-outbox",
+        "ec.alerting-service.{tenant}.echo-outbox",
+        "ec.echo-engine.{tenant}.echoAction"
+      ],
+      "kafkaPublished": [
+        "ec.alerting-service.{tenant}.alertedCommunication",
+        "ec.alerting-service.{tenant}.echoCommunication"
+      ],
+      "restApis": [
+        "POST /v1/tenants/{tenantName}/bootstrap-config",
+        "POST .../manual-run-bootstrap-config"
+      ],
+      "stores": [
+        "supervised_items",
+        "ec-alerting-supervised-items-shadow",
+        "supervised_items_shadow (echo)",
+        "echo-outbox",
+        "retention_policy_map_shadow",
+        "s3_attributes_shadow (site DB)"
+      ],
+      "keyTerms": {
+        "fanout": "1 comm -> N alerts per supervised group",
+        "retention": "how long alerts are kept",
+        "alertedCommunication": "emitted alert event"
+      }
+    },
+    "ec-indexer": {
+      "role": "Indexes parent (communication) and child (audio enrichment) documents to Elasticsearch or Indexing Gateway.",
+      "userSynonyms": [
+        "indexer",
+        "search writer",
+        "archiver"
+      ],
+      "codeSymbols": [
+        "IngestedCommunicationConsumer",
+        "SurveilledCommunicationConsumer",
+        "ParentReIndexingEventConsumer",
+        "IndexerService",
+        "ElasticsearchBulkIndexingService",
+        "BulkDocumentEntry",
+        "ConductActionIndexingService",
+        "AudioEnrichmentService",
+        "IndexingGatewayClient",
+        "AuditEventPublisher"
+      ],
+      "kafkaConsumed": [
+        "ec.surveillance-gateway.outbox.{tenant}.ingestedCommunication",
+        "ec.surveillance-gateway.outbox.{tenant}.qualifiedCommunication",
+        "ec.surveillance-policy-evaluator.{tenant}.surveilled",
+        "supActionIndexTopic_k8s"
+      ],
+      "kafkaPublished": [
+        "ec.centralized.{tenant}.audit.indexer.event",
+        "{topic}-ec-indexer-retry-{0,1}",
+        "{topic}-ec-indexer-dlt"
+      ],
+      "restApis": [],
+      "stores": [
+        "Elasticsearch: surveil.av5, review.v1",
+        "AWS S3 (read)"
+      ],
+      "keyTerms": {
+        "parent document": "the communication",
+        "child document": "audio transcript enrichment",
+        "indexAlias": "default ES index",
+        "ec.surveillance-indexer.indexed": "audit success event name"
+      }
+    },
+    "ec-review-service": {
+      "role": "Authoritative source for reviewer groups, pipeline-reviewer assignments, and review entitlements.",
+      "userSynonyms": [
+        "reviewer config",
+        "who reviews",
+        "assignments",
+        "entitlements"
+      ],
+      "codeSymbols": [
+        "PipelineReviewerGroupService",
+        "ReviewerGroupController",
+        "ReviewEntitlementsController",
+        "PipelineEventConsumer",
+        "SupervisionQueueEntity",
+        "ReviewerGroupEntity",
+        "ReviewEntitlements",
+        "ReviewerType.INDIVIDUAL",
+        "ReviewerType.GROUP",
+        "ReviewerAssignment",
+        "Level",
+        "Role",
+        "SupervisedItem.QueueMetadata"
+      ],
+      "kafkaConsumed": [
+        "pipeline CDC events (PipelineEventConsumer) — surveillance-pipelines sync"
+      ],
+      "kafkaPublished": [
+        "pipeline reviewer assignment events (prepareAndPublishPipelineEvent)"
+      ],
+      "restApis": [
+        "POST/GET/PATCH/DELETE /v1/tenants/{tenantName}/reviewer-groups",
+        "PUT/DELETE /pipelines/reviewer-group",
+        "GET /pipelines/{pipelineId}/reviewers",
+        "POST/GET/DELETE /pipelines/{pipelineId}/review-entitlements",
+        "GET /pipelines/{pipelineId}/review-entitlements/export"
+      ],
+      "stores": [
+        "MongoDB alcatraz (per-tenant): SupervisionQueueEntity, ReviewerGroupEntity, ReviewEntitlements, supervised_items"
+      ],
+      "keyTerms": {
+        "queue == pipeline": "SupervisionQueueEntity is the pipeline model here",
+        "level": "escalation tier",
+        "role": "reviewer role",
+        "entitlement": "who may review which items"
+      }
+    },
+    "ec-reporting": {
+      "role": "Builds pipeline execution reports, corpus counts, event logs, and conduct audit records.",
+      "userSynonyms": [
+        "reports",
+        "dashboards",
+        "KPIs",
+        "health check"
+      ],
+      "codeSymbols": [
+        "PipelineCompletionConsumer",
+        "ReconciledEventConsumer",
+        "EventLogConsumer",
+        "AuditEventLogConsumer",
+        "ConductAuditPublisher",
+        "EventLogPublisher",
+        "PipelineExecutionReport",
+        "PipelineCompletionHandler",
+        "SupervisedItemRepository.getEchoCancellationsCount",
+        "MonitoredCorpus",
+        "FilterPolicyCorpus",
+        "AlertedFlaggedCorpus"
+      ],
+      "kafkaConsumed": [
+        "ec.surveillance-outcome.{tenant}.job_request_config",
+        "ec.centralised-audit.outbox.{tenant}.windowReconciliation",
+        "ec.config-curator.{tenant}.surveillance-pipelines",
+        "ec.surveillance-quota-manager.{tenant}.quota-windows",
+        "ec.centralized.{tenant}.audit + 10 DLT patterns",
+        "ec.surveillance-gateway.outbox.{tenant}.ingestedCommunication"
+      ],
+      "kafkaPublished": [
+        "conduct_audit_topic",
+        "eventloggingpublisher_k8s",
+        "{base}-ec-reporting-retry-{0,1}",
+        "{base}-ec-reporting-dlt"
+      ],
+      "restApis": [
+        "POST .../bootstrap-config",
+        "GET /v1/tenants/{tenantName}/pipeline-execution-reports"
+      ],
+      "stores": [
+        "supervised_items (read)",
+        "ec-reporting-pipeline-events_{wt}",
+        "ec-reporting-pipeline-execution-reports",
+        "ec-reporting-pipelines_{wt}",
+        "ec-reporting-quota-windows"
+      ],
+      "terminatingEvents": [
+        "ec.surveillance-filter.pipelines.filtered=IGNORED",
+        "ec.surveillance-policy-evaluator.filtered=FILTERED",
+        "ec.surveillance-quota-manager.not-sampled=IGNORED",
+        "ec.surveillance-quota-manager.random.not-sampled=IGNORED"
+      ],
+      "keyTerms": {
+        "corpus": "count of comms at a stage",
+        "DHC report": "pipeline execution health check",
+        "terminating event": "final lifecycle event for a comm"
+      }
+    },
+    "ec-manual-runs-service": {
+      "role": "Orchestrates manual-runs, lookbacks, and on-demand remediation via Athena/S3/ES; result chunking.",
+      "userSynonyms": [
+        "re-run",
+        "lookback",
+        "backfill",
+        "remediation",
+        "historical"
+      ],
+      "codeSymbols": [
+        "ManualRunController.initiateManualRun",
+        "LookbackController.initiateLookback",
+        "RemediationController.initiateRemediation",
+        "QuotaWindowConsumer",
+        "JobRequestConfigConsumer",
+        "RemediationSnapshotCdcEventConsumer",
+        "ResultChunkEventConsumer",
+        "QualifiedCommPublisher",
+        "AthenaQueryExecutor",
+        "ArchiveSearchClient",
+        "IngestingGatewayClient"
+      ],
+      "kafkaConsumed": [
+        "ec.surveillance-quota-manager.{tenant}.quota-windows",
+        "ec.surveillance-outcome.{tenant}.job_request_config",
+        "ec.on-demand.{tenant}.remediation-monitored-corpus-snapshots",
+        "ec.on-demand.remediation-dlt",
+        "ec-surveillance-manual-run-{tenant}-result-chunk",
+        "ec-surveillance-manual-run-{tenant}-qualified (deprecated)"
+      ],
+      "kafkaPublished": [
+        "ec-surveillance-manual-run-{tenant}-qualified",
+        "ec.surveillance-manual-run.{tenant}.ingestion",
+        "ec-surveillance-manual-run-{tenant}-result-chunk",
+        "ec.on-demand.remediation-dlt"
+      ],
+      "restApis": [
+        "POST /manual-runs",
+        "GET /manual-runs/{id}",
+        "POST /post-migration-manual-run",
+        "POST /lookback",
+        "POST /on-demand/remediate",
+        "GET /remediations/{id}/status"
+      ],
+      "stores": [
+        "MongoDB alcatraz (manual-run/lookback/remediation requests)",
+        "AWS Athena (ec_indexable_payload_table)",
+        "AWS S3 (ec-surveillance-results)",
+        "Archive Elasticsearch"
+      ],
+      "keyTerms": {
+        "manual run": "re-run over stored data",
+        "lookback": "historical date-range analysis",
+        "remediation": "on-demand re-ingestion of matching corpus",
+        "compaction": "parquet compaction of Athena tables"
+      }
+    },
+    "ec-centralised-audit": {
+      "role": "Consumes all lifecycle/DLT events; tracks audit-events, pipeline-summary; reconciliation of windows and sources.",
+      "userSynonyms": [
+        "audit",
+        "tracking",
+        "reconciliation",
+        "lifecycle tracker"
+      ],
+      "codeSymbols": [
+        "CommunicationEventConsumer",
+        "CognitionReconciliationEventConsumer",
+        "QuotaWindowEventConsumer",
+        "PipelineUpsertEventConsumer",
+        "ReconCronJobScheduler",
+        "SourceReconScheduler",
+        "AuditEvent",
+        "QuotaWindowReconciliationEntity",
+        "AuditEventPipelineSummary",
+        "PipelineCatalog",
+        "GatewayHttpClient (watermark)"
+      ],
+      "kafkaConsumed": [
+        "ec.centralized.{tenant}.audit",
+        "ec.surveillance-gateway.outbox.{tenant}.ingestedCommunication",
+        "~14 DLT topics",
+        "ec.surveillance-config.outbox.{tenant}.*",
+        "ec.surveillance-quota-manager.{tenant}.quota-windows",
+        "ec.config-curator.{tenant}.surveillance-pipelines",
+        "ec.centralised-audit.{tenant}.cognitionReconciliation"
+      ],
+      "kafkaPublished": [
+        "ec.centralized.{tenant}.audit-events-retry-{0,1}",
+        "ec.centralized.{tenant}.audit-events-dlt",
+        "ec.centralised-audit.source-reconciled",
+        "ec.centralised-audit.policy-evaluation-reconciled (Debezium outbox)"
+      ],
+      "restApis": [
+        "POST /v1/tenants/{tenantName}/source",
+        "PATCH /v1/tenants/{tenantName}/source",
+        "POST .../bootstrap-config"
+      ],
+      "stores": [
+        "ec-audit-events",
+        "ec_config_audit_events",
+        "ec-centralised-audit-reconciliation",
+        "ec-centralised-audit-cognition-reconciliation",
+        "ec-audit-pipeline-summary",
+        "pipeline-catalog_{windowToken}"
+      ],
+      "keyTerms": {
+        "reconToken": "reconciliation token",
+        "watermark": "ingested count from gateway",
+        "terminatingEventV3": "terminal event marker",
+        "processedByQuotaManager": "quota stage completed flag"
+      }
+    },
+    "ec-echo-engine": {
+      "role": "Hash-based echo (duplicate alert) detection from alerted events; classifies ORIGINAL vs ECHO vs OUT_OF_ORDER.",
+      "userSynonyms": [
+        "duplicate detector",
+        "dedup",
+        "echo detection",
+        "repeat finder"
+      ],
+      "codeSymbols": [
+        "AlertProcessingService.process",
+        "EchoCorrelationService.classifyAlert",
+        "EchoCorrelationResult.Echo",
+        "EchoCorrelationResult.Original",
+        "EchoCorrelationResult.OutOfOrder",
+        "EchoEngineStateEntity",
+        "PolicyHitsHashGeneratorService.generateMD5Hash"
+      ]
+    }
+  }
+}

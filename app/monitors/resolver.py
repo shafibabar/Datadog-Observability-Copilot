@@ -15,6 +15,14 @@ from app.monitors.index import MonitorsIndex, aliases_from_metric_names
 #: How many metrics one investigation may query. Bounds HTTP calls and tokens.
 DEFAULT_TOP_K = 8
 
+#: Weight for the EC knowledge layer's top candidate. Above the alias-phrase
+#: weight (10.0) because a knowledge hit is a *semantic* match — it knows
+#: "sampler" means the quota manager — whereas an alias hit is a string match on
+#: a Terraform module name. Later candidates decay so the knowledge layer's own
+#: ordering survives, with a floor that still clears token-overlap noise.
+KNOWLEDGE_WEIGHT = 12.0
+KNOWLEDGE_FLOOR = 5.0
+
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 # Generic metric-name segments that shouldn't count as term matches on their own
@@ -32,15 +40,22 @@ def select_metrics(
     index: MonitorsIndex,
     available: set[str],
     k: int = DEFAULT_TOP_K,
+    vocabulary=None,
 ) -> list[str]:
     """Select up to `k` metric names relevant to the question.
 
-    Scoring: an alias phrase appearing in the question is a strong signal for
-    all its metrics (recent-history matches count at reduced weight); question
-    tokens overlapping a metric's own name segments add a weaker signal. With
-    no signal at all, fall back to a golden set (one throughput-ish + one
-    error-ish metric per service) so "is everything healthy?" still gets real
-    telemetry. Only metrics in `available` are ever returned.
+    Scoring: the EC knowledge layer's candidates rank highest when a
+    `vocabulary` is supplied — it is the only source that maps everyday words
+    ("sampler", "are we backed up?") onto services and monitors. Below that, an
+    alias phrase appearing in the question is a strong signal for all its
+    metrics (recent-history matches count at reduced weight); question tokens
+    overlapping a metric's own name segments add a weaker signal. With no signal
+    at all, fall back to a golden set (one throughput-ish + one error-ish metric
+    per service) so "is everything healthy?" still gets real telemetry. Only
+    metrics in `available` are ever returned.
+
+    `vocabulary` is optional and purely additive: omitted, this behaves exactly
+    as it did before the knowledge layer existed.
 
     `available` — the registry the data source can actually query — is the
     authority on what exists, NOT `index.metric_queries`. The Terraform repo is an
@@ -59,6 +74,13 @@ def select_metrics(
     question_tokens = _tokens(question_text)
 
     scores: dict[str, float] = {}
+
+    # EC knowledge first: it resolves user words to services, monitors and
+    # lifecycle stages that no string match can reach. Its own ordering is
+    # meaningful (monitor-named series lead), so weight decays down the list.
+    for rank, metric in enumerate(_knowledge_candidates(question, vocabulary, available)):
+        scores[metric] = scores.get(metric, 0.0) + max(
+            KNOWLEDGE_WEIGHT - rank, KNOWLEDGE_FLOOR)
 
     # Terraform module vocabulary first, then phrases implied by the available
     # metric names themselves (the only vocabulary when there's no Terraform repo).
@@ -90,6 +112,23 @@ def select_metrics(
     if ranked:
         return ranked[:k]
     return _golden_set(available, k)
+
+
+def _knowledge_candidates(question: str, vocabulary, available: set[str]) -> list[str]:
+    """Metrics the EC knowledge layer proposes for this question, best first.
+
+    Imported lazily so the resolver keeps working — and the correlation tests
+    keep running — with no knowledge package present. Returns [] on anything
+    unexpected: a vocabulary problem must degrade selection, never break it.
+    """
+    if vocabulary is None or not available:
+        return []
+    try:
+        from app.knowledge.interpret import candidate_metrics, interpret
+
+        return candidate_metrics(interpret(question, vocabulary), vocabulary, available)
+    except Exception:  # pragma: no cover - defensive; knowledge is optional
+        return []
 
 
 def _golden_set(available: set[str], k: int) -> list[str]:

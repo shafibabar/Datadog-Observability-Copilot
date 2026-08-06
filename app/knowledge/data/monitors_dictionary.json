@@ -1,0 +1,915 @@
+{
+  "$schema": "ec-surveillance-datadog-dashboards-monitors-dictionary/v1",
+  "metadata": {
+    "name": "EC Surveillance Datadog Dashboard & Monitor Dictionary (NLP synonym map)",
+    "description": "Maps non-technical phrasing ('is anything on fire?', 'the gateway board', 'are we behind?') to the concrete Datadog monitor module names, dashboard module names, widget groups, Slack channels, and severities defined in the ec-conduct-dd-monitors Terraform repo. Companion to the metrics/errors/grammar JSONs. Source-of-truth repo: Smarsh/ec-conduct-dd-monitors (workpack in Smarsh/1sp-conduct-ai).",
+    "sourceRepo": "Smarsh/ec-conduct-dd-monitors",
+    "verifiedAgainst": "workpack pin 6821e6f9 (monitor catalog byte-unchanged from 5814aaf2)",
+    "conventions": {
+      "{env}|{kube_namespace}": "e.g. ep-ms-prod, ep-sc-prod, ep-perflab-uat, ep-smarsh-staging, ep-mt7-uat",
+      "{tenant}": "logical tenant, e.g. msprod, conductprod",
+      "monitorType": "every monitor is Datadog `query alert`; no SLO/composite/log monitors exist",
+      "notification": "Slack-only: @slack-Smarsh_Via_App-<alert_channel>; P1/P2/P3 via Datadog priority",
+      "criticalZero": "critical = 0 means 'alert if the error/DLT counter is > 0' (any occurrence)"
+    }
+  },
+  "globalTerms": [
+    {
+      "canonical": "monitor",
+      "userSynonyms": [
+        "alert",
+        "alarm",
+        "alerting rule",
+        "page",
+        "trigger",
+        "watchdog",
+        "detector",
+        "the thing that pages us"
+      ],
+      "codeSymbols": [
+        "datadog_monitor",
+        "modules/<monitor_name>",
+        "query alert",
+        "monitor_thresholds"
+      ],
+      "note": "A monitor lives in modules/<name>/main.tf and fans out per-tenant/per-service via for_each."
+    },
+    {
+      "canonical": "dashboard",
+      "userSynonyms": [
+        "board",
+        "screen",
+        "view",
+        "graphs",
+        "charts",
+        "panel",
+        "the ops screen",
+        "status page"
+      ],
+      "codeSymbols": [
+        "datadog_dashboard",
+        "modules/<name>_dashboard",
+        "*_specs.tf",
+        "widget group",
+        "template_variable",
+        "preset",
+        "saved view"
+      ],
+      "note": "Dashboards declare NO alert thresholds - only monitors do. Widget-groups are the *_specs.tf files."
+    },
+    {
+      "canonical": "severity",
+      "userSynonyms": [
+        "priority",
+        "how bad",
+        "urgency",
+        "page vs warning",
+        "tier"
+      ],
+      "codeSymbols": [
+        "priority = 1",
+        "priority = 2",
+        "priority = 3",
+        "P1",
+        "P2",
+        "P3",
+        "<!channel>"
+      ],
+      "mapping": {
+        "P1": "critical - pages, <!channel>",
+        "P2": "warning",
+        "P3": "low / lookback"
+      }
+    },
+    {
+      "canonical": "alert_channel",
+      "userSynonyms": [
+        "slack channel",
+        "who gets pinged",
+        "where it alerts",
+        "notification target"
+      ],
+      "codeSymbols": [
+        "@slack-Smarsh_Via_App-${lower(env.alert_channel)}",
+        "ec-alerts-<client>-p1",
+        "ec-alerts-<client>-p2"
+      ],
+      "examples": [
+        "ec-alerts-ms-p1",
+        "ec-alerts-ms-p2",
+        "ec-alerts-sc-p1",
+        "ec-alerts-sc-p2",
+        "ec-alerts-staging-p1",
+        "ec-alerts-staging-p2"
+      ]
+    },
+    {
+      "canonical": "consumer_lag",
+      "userSynonyms": [
+        "backed up",
+        "behind",
+        "falling behind",
+        "lag",
+        "queue building up",
+        "not keeping up",
+        "stuck"
+      ],
+      "codeSymbols": [
+        "kafka.consumer_lag",
+        "consumer_group:"
+      ],
+      "gap": true,
+      "note": "57 dashboard widgets but ZERO monitors - user asking 'are we backed up?' can only be answered from a dashboard, never from an alert."
+    },
+    {
+      "canonical": "pod_health",
+      "userSynonyms": [
+        "crashing",
+        "restarting",
+        "out of memory",
+        "OOM",
+        "crashloop",
+        "pod down",
+        "5xx",
+        "service unhealthy"
+      ],
+      "codeSymbols": [
+        "kubernetes_state.pod.status_phase",
+        "kubernetes_state.container.restarts",
+        "kubernetes.memory.usage",
+        "kubernetes.cpu.usage.total",
+        "container.cpu.throttled"
+      ],
+      "gap": true,
+      "note": "Dashboard-only; no crashloop/OOM/5xx alert monitor exists."
+    }
+  ],
+  "monitors": [
+    {
+      "module": "debezium_connector_failure",
+      "userSynonyms": [
+        "CDC broke",
+        "connector failed",
+        "debezium down",
+        "replication task failed",
+        "change stream stopped"
+      ],
+      "watches": "ec-surveillance-debezium / Kafka Connect connector failed tasks",
+      "metric": "jmx.kafka.connect.connector_failed_task_count",
+      "query": "avg(last_5m):sum:jmx.kafka.connect.connector_failed_task_count{kube_namespace:<env>} by {connector} > 0",
+      "threshold": "critical = 0 (any failed task)",
+      "priority": "P1",
+      "coverage": "5 instances (non-prod 3 + prod 2)"
+    },
+    {
+      "module": "debezium_connector_behind_source",
+      "userSynonyms": [
+        "CDC lagging",
+        "debezium behind",
+        "replication lag",
+        "change stream slow",
+        "falling behind mongo"
+      ],
+      "watches": "ec-surveillance-debezium replication lag vs MongoDB oplog",
+      "metric": "jmx.debezium.mongodb.milli_seconds_behind_source",
+      "query": "avg(last_5m):max:jmx.debezium.mongodb.milli_seconds_behind_source{kube_namespace:<env>} by {connector} / 1000 > 1800",
+      "threshold": "warning = 600s (10m), critical = 1800s (30m)",
+      "priority": "P1",
+      "coverage": "5 instances"
+    },
+    {
+      "module": "bootstrap_config_cron_failure",
+      "userSynonyms": [
+        "bootstrap job failed",
+        "config setup broke",
+        "nightly config job failed",
+        "tenant config bootstrap error"
+      ],
+      "watches": "ec-config-curator BOOTSTRAP_CONFIG cron",
+      "metric": "ec.config_curator.BOOTSTRAP_CONFIG_job_failed_rate",
+      "query": "sum(last_60m):sum:ec.config_curator.BOOTSTRAP_CONFIG_job_failed_rate{kube_namespace:<env>} by {exception,tenant}.as_count() > 0",
+      "threshold": "critical = 0",
+      "priority": "P1",
+      "note": "This is a CRON failure, not a service-startup failure."
+    },
+    {
+      "module": "freeze_config_cron_failure",
+      "userSynonyms": [
+        "freeze job failed",
+        "config snapshot broke",
+        "freeze window cron error",
+        "config lock job failed"
+      ],
+      "watches": "ec-config-curator FREEZE_CONFIG cron",
+      "metric": "ec.config_curator.FREEZE_CONFIG_job_failed_rate",
+      "query": "sum(last_5m):sum:ec.config_curator.FREEZE_CONFIG_job_failed_rate{kube_namespace:<env>} by {exception,tenant}.as_count() > 0",
+      "threshold": "critical = 0",
+      "priority": "P1"
+    },
+    {
+      "module": "data_plane_freeze_window_failure",
+      "userSynonyms": [
+        "freeze window consumer error",
+        "config freeze failed in pipeline",
+        "freeze event error"
+      ],
+      "watches": "freeze-window Kafka consumer in policy-evaluator, quota-manager, queue-qualifier (3 services)",
+      "metric": "<service.prefix>.freeze_window_consumer_error_counter",
+      "services": [
+        "ec.surveillance_policy_evaluator",
+        "ec.quota_manager",
+        "ec.pipeline_qualifier"
+      ],
+      "threshold": "critical = 0",
+      "priority": "P1",
+      "coverage": "15 instances (3 services x tenants)"
+    },
+    {
+      "module": "quota_manager_metadata_comms_consumer_error",
+      "userSynonyms": [
+        "quota manager metadata failed",
+        "sampling metadata consumer error",
+        "metadata comms dead-lettered"
+      ],
+      "watches": "ec-surveillance-quota-manager metadata-comms consumer DLT",
+      "metric": "ec.quota_manager.metadata_comms_consumer_dlt_counter",
+      "threshold": "critical = 0",
+      "priority": "P1"
+    },
+    {
+      "module": "qualified_comms_failure_rate",
+      "userSynonyms": [
+        "pipeline error rate",
+        "end to end failures",
+        "is the pipeline healthy",
+        "overall error rate",
+        "messages failing"
+      ],
+      "watches": "END-TO-END rate across queue-qualifier + surveillance-filter + policy-evaluator + quota-manager (8 error counters / qualifier rate)",
+      "metric": "composite: 8 error counters ÷ ec.surveillance_filter.queue_qualifier_event_consumption_rate ×100",
+      "threshold": "critical = 0.01 (%)",
+      "priority": "P1",
+      "note": "The ONLY end-to-end alert. WARNING: QM terms use prefix ec.surveillance.quota_manager.* which may be no-data (green != healthy)."
+    },
+    {
+      "module": "manual_run_token_null_failure",
+      "userSynonyms": [
+        "manual run failed",
+        "re-run token missing",
+        "lookback date didn't resolve",
+        "manual run window token null"
+      ],
+      "watches": "ec-manual-runs-service - manual-run date not resolving to a window token",
+      "metric": "ec.manual_run_service.manual_run_window_token_missing_error_counter",
+      "threshold": "critical = 0",
+      "priority": "P2",
+      "gap": true,
+      "note": "NEW monitor wired AHEAD of its metric - metric not yet emitted, so reads green (no-data trap)."
+    },
+    {
+      "module": "compaction_failure",
+      "userSynonyms": [
+        "compaction failed",
+        "parquet compaction broke",
+        "athena table compaction error"
+      ],
+      "watches": "ec-manual-runs-service Parquet compaction crons (initiation + status)",
+      "metric": "ec.manual_run_service.compaction_initiation_error_counter + ...compaction_status_error_counter",
+      "threshold": "critical = 0",
+      "priority": "P2",
+      "note": "Metric-name hazard: OTEL LongCounters may surface with a _total suffix -> could read no-data/green."
+    },
+    {
+      "module": "quota_manager_reconciled_event_consumer_error",
+      "userSynonyms": [
+        "quota reconciliation consumer failed",
+        "reconciled event dead-lettered",
+        "quota recon consumer error"
+      ],
+      "watches": "ec-surveillance-quota-manager reconciled-event consumer DLT",
+      "metric": "ec.quota_manager.reconciled_event_consumer_dlt_counter",
+      "threshold": "critical = 0",
+      "priority": "P1"
+    },
+    {
+      "module": "audit_event_consumer_failure",
+      "userSynonyms": [
+        "audit consumer failed",
+        "audit dead-lettered",
+        "ingestion failure record",
+        "comm event DLT"
+      ],
+      "watches": "ec-centralised-audit communication-event consumer DLT",
+      "metric": "ec.centralised_audit.communication_event_dlt_counter",
+      "threshold": "critical = 0",
+      "priority": "P1"
+    },
+    {
+      "module": "legacy_config_consumer_failure",
+      "userSynonyms": [
+        "legacy config consumer error",
+        "old config feed failed",
+        "config curator legacy DLT"
+      ],
+      "watches": "ec-config-curator legacy-config consumer DLT",
+      "metric": "ec.config_curator.legacy_config_consumer_dlt_counter",
+      "threshold": "critical = 0",
+      "priority": "P1",
+      "resourceName": "config_curator_legacy_config_consumer_failure"
+    },
+    {
+      "module": "cognition_reconciliation_communication_event_dlt",
+      "userSynonyms": [
+        "cognition recon dead-lettered",
+        "AI reconciliation failed",
+        "cognition comm event DLT"
+      ],
+      "watches": "ec-centralised-audit Cognition-reconciliation comm-event consumer DLT",
+      "metric": "ec.centralised_audit.communication_event_dlt_counter_for_cognition_reconciliation",
+      "threshold": "critical = 0",
+      "priority": "P1"
+    },
+    {
+      "module": "cdc_cognition_reconciliation_error",
+      "userSynonyms": [
+        "cognition CDC error",
+        "AI recon cdc failed",
+        "cognition reconciliation change-stream error"
+      ],
+      "watches": "ec-centralised-audit CDC-driven Cognition reconciliation error counter",
+      "metric": "ec.centralised_audit.cdc_cognition_reconciliation_error_counter",
+      "threshold": "critical = 0",
+      "priority": "P1"
+    },
+    {
+      "module": "kpi_event_consumer_error",
+      "userSynonyms": [
+        "KPI consumer failed",
+        "stats consumer error",
+        "kpi event dead-lettered"
+      ],
+      "watches": "KPI-event consumer in surveillance-filter, quota-manager, queue-qualifier (3 services)",
+      "metric": "<service.prefix>.kpi_event_consumer_error_counter",
+      "services": [
+        "ec.surveillance_filter",
+        "ec.quota_manager",
+        "ec.pipeline_qualifier"
+      ],
+      "threshold": "critical = 0",
+      "priority": "P2",
+      "coverage": "15 instances"
+    },
+    {
+      "module": "window_token_not_reconciled_in_time",
+      "userSynonyms": [
+        "window not reconciled",
+        "recon didn't finish",
+        "daily reconciliation missing",
+        "window token stuck",
+        "batch didn't reconcile"
+      ],
+      "watches": "ec-centralised-audit source-reconciliation completion in a daily timezone window",
+      "metric": "<service.prefix>.source_recon_completed_success_counter",
+      "query": "sum(last_<window>m):sum:...{kube_namespace:<env>,tenant:<tenant>} < 1",
+      "threshold": "critical = 1 (alert when count < 1)",
+      "priority": "P1",
+      "note": "Timezone-grouped; evaluates once daily at window end. tz keys: UTC/CST/SGT/IST."
+    },
+    {
+      "module": "pipeline_not_completion_in_time",
+      "userSynonyms": [
+        "pipeline didn't finish",
+        "run not completed",
+        "supervision didn't complete",
+        "pipelines still pending",
+        "queue didn't finish in time"
+      ],
+      "watches": "ec-reporting pending-pipeline gauge per window_token",
+      "metric": "ec.reporting.pending_pipelines_count",
+      "query": "min(last_<window>m):min:ec.reporting.pending_pipelines_count{kube_namespace:<env>,tenant:<tenant>} by {tenant,window_token} > 0",
+      "threshold": "critical = 0",
+      "priority": "P1",
+      "note": "REWRITTEN (CONDUCT-12145): was abs(completed-active) diff, now single pending gauge. Cross-midnight schedule."
+    },
+    {
+      "module": "monitored_corpus_above_trendline",
+      "userSynonyms": [
+        "ingest spike",
+        "volume too high",
+        "too many messages",
+        "corpus spike",
+        "traffic surge"
+      ],
+      "watches": "ec-centralised-audit ingested-corpus volume anomaly (spike)",
+      "metric": "anomalies(ec.centralised_audit.conduct.ingested.count, direction='above', seasonality='weekly')",
+      "threshold": "critical = 1",
+      "priority": "P2"
+    },
+    {
+      "module": "monitored_corpus_below_trendline",
+      "userSynonyms": [
+        "ingest drop",
+        "volume too low",
+        "not enough messages",
+        "ingest stalled",
+        "traffic dropped",
+        "nothing coming in"
+      ],
+      "watches": "ec-centralised-audit ingest drop below weekly-seasonal trend",
+      "metric": "anomalies(ec.centralised_audit.conduct.ingested.count, direction='below', seasonality='weekly')",
+      "threshold": "critical = 1",
+      "priority": "P2",
+      "note": "Omits on_missing_data/notification_preset -> a true zero-ingest may be SUPPRESSED (gap G7)."
+    },
+    {
+      "module": "lookback_initiation_failed",
+      "blockName": "lookback_trigger_failure",
+      "userSynonyms": [
+        "lookback failed to start",
+        "historical run didn't trigger",
+        "backfill trigger failed"
+      ],
+      "watches": "ec-lookback trigger",
+      "metric": "ec.lookback_service.lookback_trigger_total{outcome:failure}",
+      "threshold": "critical = 0",
+      "priority": "P3",
+      "note": "Only tenants in var.lookback_tenants get this."
+    },
+    {
+      "module": "lookback_no_completion_today",
+      "blockName": "lookback_completion_count",
+      "userSynonyms": [
+        "lookback didn't finish",
+        "not enough lookbacks completed",
+        "backfill under-completed",
+        "historical run count low"
+      ],
+      "watches": "ec-manual-runs-service lookback completion volume per tenant",
+      "metric": "ec.manual_run_service.lookback_completed_total",
+      "query": "sum(last_1d):...as_count() < <expected_count>",
+      "threshold": "critical = expected_count (non-prod msanity=4, prod msuat=3, prod msprod=0)",
+      "priority": "P3",
+      "note": "prod msprod expected_count=0 => threshold < 0 can NEVER fire (inert monitor). Completion metric is ec.manual_run_service.* but trigger metric is ec.lookback_service.* (two different services)."
+    },
+    {
+      "module": "remediation_snapshot_event_error_counter",
+      "userSynonyms": [
+        "remediation failed",
+        "on-demand re-ingest dead-lettered",
+        "remediation snapshot error",
+        "reindex snapshot failed"
+      ],
+      "watches": "ec-manual-runs-service remediation-snapshot CDC consumer DLT (ec.on-demand.remediation-dlt)",
+      "metric": "ec.manual_run_service.remediation_snapshot_event_error_counter",
+      "threshold": "critical = 0",
+      "priority": "P1",
+      "note": "ONLY monitor with a {{#is_recovery}} auto-resolve block. Orphan doc dir modules/remediation_snapshot_event_error/ has no .tf."
+    },
+    {
+      "module": "ec_indexer_consumer_failure",
+      "userSynonyms": [
+        "indexer failed",
+        "indexing dead-lettered",
+        "ES load failed",
+        "indexer consumer error"
+      ],
+      "watches": "ec-indexer 3 indexing consumers' DLT/error counters",
+      "metric": [
+        "ec.indexer.indexing_error_counter",
+        "ec.indexer.surveilled_communication_error_counter",
+        "ec.indexer.parent_reindexing_error_counter"
+      ],
+      "threshold": "critical = 0",
+      "priority": "P1",
+      "coverage": "15 instances (tenant x 3 consumers)"
+    }
+  ],
+  "dashboards": [
+    {
+      "module": "ec_message_processing_summary_dashboard",
+      "title": "EC message processing summary",
+      "userSynonyms": [
+        "the overview board",
+        "cross-service dashboard",
+        "big picture screen",
+        "pipeline summary",
+        "throughput board"
+      ],
+      "widgetGroups": [
+        "top_level",
+        "throughput_trend",
+        "messages_seen",
+        "latency",
+        "kafka_lags",
+        "errors",
+        "recon",
+        "debezium",
+        "resources",
+        "system_interactions",
+        "load_generator"
+      ],
+      "primarilyWatches": "cross-service throughput, kafka lags, errors, recon"
+    },
+    {
+      "module": "conduct_v3_golden_signals_product_kpi_dashboard",
+      "title": "Conduct v3 Golden Signals-Product KPI",
+      "userSynonyms": [
+        "golden signals",
+        "product KPI board",
+        "business metrics",
+        "the KPI screen"
+      ],
+      "widgetGroups": [
+        "spec_config_metrics",
+        "spec_queue_metrics",
+        "spec_tenant_metrics"
+      ],
+      "primarilyWatches": "product KPIs by tenant/queue/config"
+    },
+    {
+      "module": "ec_golden_sre_signals_dashboard",
+      "title": "EC Golden SRE Signals",
+      "userSynonyms": [
+        "infra board",
+        "SRE dashboard",
+        "health screen",
+        "infrastructure signals"
+      ],
+      "widgetGroups": [
+        "kafka",
+        "mongo_site",
+        "mongo_shared",
+        "elasticsearch",
+        "storm",
+        "k8s_services"
+      ],
+      "primarilyWatches": "infra: Kafka, MongoDB, Elasticsearch, Storm, k8s"
+    },
+    {
+      "module": "ec_debezium_dashboard",
+      "title": "EC Debezium",
+      "userSynonyms": [
+        "CDC board",
+        "debezium screen",
+        "change stream dashboard",
+        "connector board"
+      ],
+      "widgetGroups": [
+        "debezium_streaming",
+        "ec_debezium",
+        "debezium_status",
+        "debezium_connectors",
+        "kafka",
+        "debezium_snapshots",
+        "mongodb",
+        "kafka_connect",
+        "connector_debugging"
+      ],
+      "primarilyWatches": "ec-surveillance-debezium, Kafka Connect, MongoDB oplog/replication lag"
+    },
+    {
+      "module": "ec_gateway_dashboard",
+      "title": "EC Gateway",
+      "userSynonyms": [
+        "gateway board",
+        "ingestion dashboard",
+        "gateway screen"
+      ],
+      "widgetGroups": [
+        "ingestion_gateway_event_consumer",
+        "manual_run_event_consumer",
+        "remediation_event_consumer",
+        "quota_window_cdc_consumer",
+        "watermark_api",
+        "debezium_sync",
+        "pod_statistics",
+        "gatling",
+        "note"
+      ],
+      "primarilyWatches": "ec-surveillance-gateway consumers + APIs"
+    },
+    {
+      "module": "ec_policy_evaluator_dashboard",
+      "title": "EC Policy Evaluator",
+      "userSynonyms": [
+        "policy evaluator board",
+        "evaluation dashboard",
+        "cognition board",
+        "AI evaluation screen"
+      ],
+      "widgetGroups": [
+        "bootstrap_api_stats",
+        "manual_run_bootstrap_api_stats",
+        "cognition_cims_coms",
+        "cognition_workflow_creation",
+        "sync",
+        "pod_statistics",
+        "gatling"
+      ],
+      "primarilyWatches": "ec-surveillance-policy-evaluator, Cognition CIMS/COMS + workflow"
+    },
+    {
+      "module": "ec_pipeline_qualifier_dashboard",
+      "title": "EC Pipeline Qualifier",
+      "userSynonyms": [
+        "qualifier board",
+        "queue qualifier dashboard",
+        "qualification screen"
+      ],
+      "widgetGroups": [
+        "queue_qualifier",
+        "freeze_window",
+        "pipeline_sync",
+        "debezium_sync",
+        "api_stats",
+        "perf_test"
+      ],
+      "primarilyWatches": "ec-queue-qualifier"
+    },
+    {
+      "module": "ec_quota_manager_dashboard",
+      "title": "EC Quota Manager",
+      "userSynonyms": [
+        "quota manager board",
+        "sampling dashboard",
+        "quota screen"
+      ],
+      "widgetGroups": [
+        "kpi",
+        "surveilled_communications",
+        "surveilled_not_qualified_comms_consumer",
+        "metadata_comms",
+        "reconciled_event_consumer",
+        "sampling_stats",
+        "create_next_quota_window_api",
+        "bootstrap_api_stats",
+        "clean_up_cron_job",
+        "pod_statistics"
+      ],
+      "primarilyWatches": "ec-surveillance-quota-manager"
+    },
+    {
+      "module": "ec_alerting_service_dashboard",
+      "title": "EC Alerting Service",
+      "userSynonyms": [
+        "alerting board",
+        "alert generation dashboard",
+        "surveilled comms screen"
+      ],
+      "widgetGroups": [
+        "surveilled_consumer",
+        "retention",
+        "outbox",
+        "alert_config_api"
+      ],
+      "primarilyWatches": "ec-alerting-service (retention/surveilled/outbox consumers, alert-config API)",
+      "note": "NEW dashboard (CONDUCT-11663)"
+    },
+    {
+      "module": "ec_config_curator_dashboard",
+      "title": "EC Config Curator",
+      "userSynonyms": [
+        "config curator board",
+        "config dashboard",
+        "CDC sync screen"
+      ],
+      "widgetGroups": [
+        "top_level",
+        "apis",
+        "cdc_sync",
+        "cron_job",
+        "pod_statistics"
+      ],
+      "primarilyWatches": "ec-config-curator + CDC sync"
+    },
+    {
+      "module": "ec_surveillance_filter_dashboard",
+      "title": "EC Surveillance Filter",
+      "userSynonyms": [
+        "filter board",
+        "policy evaluation dashboard",
+        "filter screen"
+      ],
+      "widgetGroups": [
+        "kpi",
+        "policy_evaluation",
+        "fetch_policy_api",
+        "sync",
+        "manual_run",
+        "bootstrap_api",
+        "memory_split",
+        "sf_pod_stats",
+        "gatling",
+        "note"
+      ],
+      "primarilyWatches": "ec-surveillance-filter",
+      "note": "fetch_policy_api widget group NEW @ 6821e6f9 on ec.surveillance_filter.policy_api_latency"
+    },
+    {
+      "module": "ec_surveillance_migration_shadow_testing_apis_dashboard",
+      "title": "EC Surveillance Migration (Shadow Testing APIs)",
+      "userSynonyms": [
+        "migration board",
+        "shadow testing dashboard",
+        "V2 to V3 board"
+      ],
+      "widgetGroups": [
+        "clone_to_v3_queue_api_stats",
+        "onboard_queue_to_v3_api_stats",
+        "list_queues_by_filters_api_stats",
+        "update_state_of_v3_queue_api_stats"
+      ],
+      "primarilyWatches": "ca-supervision-api V2->V3 shadow APIs"
+    },
+    {
+      "module": "ec_centralised_audit_dashboard",
+      "title": "EC Centralised Audit",
+      "userSynonyms": [
+        "audit board",
+        "reconciliation dashboard",
+        "tracking screen",
+        "audit screen"
+      ],
+      "widgetGroups": [
+        "comm_processing",
+        "failed_ingestion",
+        "reconciliation",
+        "cognition_reconciliation",
+        "config_events",
+        "quota_window",
+        "pipeline_sync",
+        "bootstrap_api",
+        "pod_stats",
+        "memory_split",
+        "k8s",
+        "gatling"
+      ],
+      "primarilyWatches": "ec-centralised-audit"
+    },
+    {
+      "module": "ec_reporting_dashboard",
+      "title": "EC Reporting",
+      "userSynonyms": [
+        "reporting board",
+        "reports dashboard",
+        "completion screen"
+      ],
+      "widgetGroups": [
+        "event_log",
+        "recon_consumer",
+        "pipeline_report_completion",
+        "pipeline_completion_table",
+        "pipeline_execution_report_api",
+        "sync",
+        "kafka",
+        "bootstrap_api",
+        "pod_stats",
+        "v2_recon_audit"
+      ],
+      "primarilyWatches": "ec-reporting"
+    },
+    {
+      "module": "ec_lookback_dashboard",
+      "title": "EC Lookback",
+      "userSynonyms": [
+        "lookback board",
+        "backfill dashboard",
+        "historical run screen"
+      ],
+      "widgetGroups": [
+        "lookback_trigger",
+        "otel_metrics"
+      ],
+      "primarilyWatches": "ec-lookback + OTEL"
+    },
+    {
+      "module": "ec_review_service_dashboard",
+      "title": "EC Review Service",
+      "userSynonyms": [
+        "review service board",
+        "reviewer dashboard",
+        "review APIs screen"
+      ],
+      "widgetGroups": [
+        "review_entitlements_apis",
+        "review_groups_apis",
+        "pipeline_reviewers_apis",
+        "pod_statistics"
+      ],
+      "primarilyWatches": "ec-review-service"
+    },
+    {
+      "module": "ec_indexer_dashboard",
+      "title": "EC Indexer",
+      "userSynonyms": [
+        "indexer board",
+        "indexing dashboard",
+        "ES load screen"
+      ],
+      "widgetGroups": [
+        "ingested",
+        "surveilled",
+        "parent_reindex",
+        "audio_enrichment",
+        "s3_to_es"
+      ],
+      "primarilyWatches": "ec-indexer (ingested/surveilled/parent-reindex, audio-enrichment, S3->ES)",
+      "note": "NEW dashboard (CONDUCT-11623)"
+    }
+  ],
+  "detectionGaps": {
+    "description": "Things a user may ask about that have NO alert monitor - only dashboards. Important negative-training data.",
+    "cases": [
+      {
+        "userAsk": "are we backed up / behind / lagging?",
+        "gap": "kafka.consumer_lag = 57 dashboard widgets, 0 monitors",
+        "answerVia": "dashboard only"
+      },
+      {
+        "userAsk": "is a pod crashing / OOM / 5xx?",
+        "gap": "pod crashloop/OOM/API-5xx dashboard-only",
+        "answerVia": "ec_golden_sre_signals_dashboard, per-service pod_statistics"
+      },
+      {
+        "userAsk": "did a service fail to start / bootstrap?",
+        "gap": "service startup/crashloop not alerted (bootstrap cron IS alerted, service bootstrap is NOT)",
+        "answerVia": "dashboard only"
+      },
+      {
+        "userAsk": "did cognition workflow creation fail?",
+        "gap": "cognition workflow-creation dashboard-only",
+        "answerVia": "ec_policy_evaluator_dashboard cognition_workflow_creation"
+      }
+    ]
+  },
+  "examples": [
+    {
+      "utterance": "is anything on fire right now for <tenant>?",
+      "parsed": {
+        "intent": "LIST_ACTIVE_ALERTS",
+        "scope": "all P1 monitors",
+        "tenant/env": "ep-ms-prod"
+      },
+      "resolved": "all datadog_monitor with priority=1 filtered kube_namespace:ep-ms-prod; Slack ec-alerts-ms-p1",
+      "confidence": "high"
+    },
+    {
+      "utterance": "did CDC / debezium fall behind?",
+      "parsed": {
+        "intent": "CHECK_MONITOR",
+        "monitor": "debezium_connector_behind_source"
+      },
+      "resolved": "monitor debezium_connector_behind_source (warn 600s / crit 1800s)",
+      "confidence": "high"
+    },
+    {
+      "utterance": "are the pipelines finishing on time?",
+      "parsed": {
+        "intent": "CHECK_MONITOR",
+        "monitor": "pipeline_not_completion_in_time"
+      },
+      "resolved": "monitor pipeline_not_completion_in_time on ec.reporting.pending_pipelines_count > 0",
+      "confidence": "high"
+    },
+    {
+      "utterance": "show me the gateway board",
+      "parsed": {
+        "intent": "OPEN_DASHBOARD",
+        "dashboard": "ec_gateway_dashboard"
+      },
+      "resolved": "dashboard module ec_gateway_dashboard (EC Gateway)",
+      "confidence": "high"
+    },
+    {
+      "utterance": "are we backed up anywhere?",
+      "parsed": {
+        "intent": "CHECK_LAG",
+        "scope": "all consumer groups"
+      },
+      "resolved": "NO MONITOR - open kafka_lags widget group on ec_message_processing_summary_dashboard",
+      "confidence": "high",
+      "gap": true
+    },
+    {
+      "utterance": "is the whole pipeline healthy end to end?",
+      "parsed": {
+        "intent": "CHECK_MONITOR",
+        "monitor": "qualified_comms_failure_rate"
+      },
+      "resolved": "monitor qualified_comms_failure_rate (composite > 0.01%)",
+      "confidence": "high",
+      "caveat": "green may be misleading - QM metric prefix may be no-data"
+    },
+    {
+      "utterance": "did the ingest volume drop for <tenant>?",
+      "parsed": {
+        "intent": "CHECK_MONITOR",
+        "monitor": "monitored_corpus_below_trendline",
+        "tenant/env": "ep-sc-prod"
+      },
+      "resolved": "monitor monitored_corpus_below_trendline; Slack ec-alerts-sc-p2",
+      "confidence": "high",
+      "caveat": "true zero-ingest may be suppressed (missing on_missing_data)"
+    }
+  ]
+}

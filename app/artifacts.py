@@ -69,7 +69,10 @@ def _build_incident_summary(inv: Investigation, incident_id: str) -> ArtifactDoc
 
     sections.append(ArtifactSection(
         heading="Summary",
-        body=inv.summary or "No summary available yet.",
+        # An artifact is circulated and read end to end, so it takes the
+        # descriptive narrative — the same reason the Workspace panel does. The
+        # chat headline is written to be scanned and reads as clipped here.
+        body=inv.narrative or inv.summary or "No summary available yet.",
     ))
 
     sev = _peak_severity(inv)

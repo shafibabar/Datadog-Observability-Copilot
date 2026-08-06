@@ -128,6 +128,71 @@ def test_empty_registry_selects_nothing():
     assert select_metrics("anything", None, empty, available=set()) == []
 
 
+# --- resolver + EC knowledge vocabulary -----------------------------------------
+
+def _vocab():
+    from app.knowledge.loader import load_knowledge
+    from app.knowledge.vocabulary import build_vocabulary
+
+    return build_vocabulary(load_knowledge())
+
+
+def test_a_knowledge_synonym_selects_the_right_service(tmp_path):
+    """"sampler" names no Terraform module and shares no token with any metric
+    name — only the EC knowledge layer knows it means the quota manager. Without
+    it this question falls through to the generic golden set."""
+    index = _index(tmp_path)
+    available = set(index.metric_queries)
+
+    blind = select_metrics("is the sampler busy?", None, index, available=available)
+    informed = select_metrics("is the sampler busy?", None, index,
+                              available=available, vocabulary=_vocab())
+
+    assert _PROCESSED in informed
+    assert informed != blind
+
+
+def test_knowledge_outranks_incidental_token_overlap(tmp_path):
+    index = _index(tmp_path)
+    selected = select_metrics(
+        "how is the sampler doing?", None, index,
+        available=set(index.metric_queries), vocabulary=_vocab(),
+    )
+    assert selected[0] == _PROCESSED
+
+
+def test_knowledge_never_selects_a_metric_the_registry_lacks(tmp_path):
+    """The hint-layer contract at the resolver boundary: the knowledge files
+    name many ec.review_service.* metrics; none are in this registry."""
+    index = _index(tmp_path)
+    selected = select_metrics(
+        "how many reviewer groups were created?", None, index,
+        available=set(index.metric_queries), vocabulary=_vocab(),
+    )
+    assert all(m in index.metric_queries for m in selected)
+
+
+def test_resolver_without_a_vocabulary_is_unchanged(tmp_path):
+    """Knowledge is additive. With no vocabulary the resolver must behave
+    exactly as it did before this layer existed."""
+    index = _index(tmp_path)
+    available = set(index.metric_queries)
+    assert (
+        select_metrics("is everything healthy?", None, index, available=available)
+        == select_metrics("is everything healthy?", None, index,
+                          available=available, vocabulary=None)
+    )
+
+
+def test_knowledge_selection_still_respects_the_top_k_bound(tmp_path):
+    index = _index(tmp_path)
+    selected = select_metrics(
+        "how is the quota manager and the audit and the qualifier doing?",
+        None, index, available=set(index.metric_queries), vocabulary=_vocab(), k=2,
+    )
+    assert len(selected) <= 2
+
+
 # --- evidence catalog bounding ---------------------------------------------------
 
 class RecordingSource(DataSource):

@@ -1,6 +1,29 @@
 # STATE.md — live status
 
-_Last updated: 2026-08-05_
+_Last updated: 2026-08-06_
+
+## Session 2026-08-06 — Iteration 4: concrete answers + EC vocabulary (486 passing, 1 skipped, 97% cov)
+
+**User-reported problems:** (1) replies were verbose and story-like instead of giving concrete metrics, numbers, and the source each conclusion came from; (2) Claude did not understand the everyday words a non-technical user types. The user supplied five curated EC knowledge JSONs to fix (2).
+
+**Phase A — `app/knowledge/` (new seam, stdlib-only, no new dependency).**
+- Five files installed under `app/knowledge/data/`. **Two arrived truncated** and were repaired deterministically (drop the incomplete trailing element, close open containers, verify by re-parsing); `nlp_grammar` lost only `ec-echo-engine`'s Kafka/API/store keys — all 12 repos and the 11-stage lifecycle survived. Two client names scrubbed to `<tenant>` **by approval**; env/tenant/channel codes kept, because the resolver needs them to build queries.
+- `loader.py` (tolerant — missing/invalid/non-object degrades, never raises) · `vocabulary.py` (548 phrases → meanings; segment derivation for repos whose `groupName` is the placeholder `"(not read)"`; singular/plural bridging) · `text.py` (word-boundary matching with a **closed** inflection set + contraction expansion) · `interpret.py` (intent/service/object/percentile/window/stage) · `gaps.py` (zero-monitor concepts and no-data traps).
+- **Hint-layer contract, enforced at every boundary:** the files *propose*, the live registry *disposes*. A metric named in the JSON but absent from discovery is never returned, scored, or citable. Consistent with the confirmed-reporting rule in `copilot.merged_metric_queries`.
+- Wired additively into three existing seams: `resolver.select_metrics(vocabulary=…)`, the engine prompt (`RESOLVED TERMS` + `COVERAGE GAPS`), and `build_copilot`'s guard vocabulary. **All three behave byte-for-byte as before when no vocabulary is passed** (explicit regression specs).
+- **Guard safety:** single-word phrases are admitted only from service/monitor/dashboard kinds. The concept/object lists contribute "message", "record", "status" — as substrings those would fast-allow nearly anything and undo the deliberate Stage-1 re-tightening of 2026-07-13.
+
+**Phase B — two-surface answer shape.**
+- The verbosity was **structural**: the prompt asked for free-text claims with no numeric requirement, and `render()` discarded the numbers `Evidence` had already computed.
+- `Evidence` now carries structured `service/stage/has_data/points/unit/baseline/latest/extreme`; `Investigation` gains `narrative`, `gaps`, `mapping` (all defaulted → old snapshots still load).
+- **Chat reply** = quantitative headline + structured fact lines (metric · latest · baseline · peak · pts · stage · service) + `Not available` + `Metrics queried`. **Workspace panel + artifacts** = the descriptive `narrative`. Same facts, two depths.
+- A **queried-but-empty** metric is now kept and flagged rather than dropped — "we looked and found nothing" ≠ "we never looked", which matters on sparse metrics.
+- Confidence renders as a `[high]` token in the persisted text and becomes a coloured chip in `renderMarkdown`, so reloaded history is chipped too and copy-to-clipboard stays clean.
+
+**Not yet done / caveats:**
+1. **The JS is still not executed by the suite** — no Node in this environment, and a JS engine would need approval. The four line-classifying regexes are asserted verbatim in the asset and run Python-compiled against real `render()` output, which catches renderer-vs-format drift but **not** a JS syntax error. A real browser check is still owed, alongside the `@`-menu check already outstanding.
+2. **Not yet validated against live Datadog or a real LLM** — everything above is verified offline with a faked LLM over replay data.
+3. Uncommitted at time of writing; `DECISIONS.md` entry for this session still to be written.
 
 ## Current gate
 Plan + Design **approved**. **Iterations 0–2 COMPLETE.** Three workstreams have landed: **Iteration 3 (platform-narrowed scope + `@` scope menu)**, the **monitors/correlation layer** (Terraform-extracted EC metrics, wired Stage-2 guard classifier), and **namespace-scoped metrics** (2026-08-05, below). All code-complete and green — see their sections below and DECISIONS for the full narrative. **Combined pending items before going live:**
@@ -72,7 +95,7 @@ Grounded in **TDD** (see `TESTING.md`, `BUILD-LOG.md` for the narrative).
 - **Tests** — declarative UI-contract tests (`tests/test_web_ui.py`) + opt-in Playwright browser smoke (`tests/test_smoke_playwright.py`, skips without a browser).
 
 ## Tests
-**377 passing, 1 skipped (Playwright, needs a browser), 98% coverage.** No pending (red) specs. The +78 over the previous 299 came from the 2026-08-05 namespace-scope session (new `tests/test_namespaces.py`, plus namespace/discovery/UI specs added to the datadog, correlation, copilot, config and web-ui suites). The 299 baseline was Iteration 3 (platform-scope config + guard vocabulary + relaxed Scope validation, then the `@`-menu composer rewrite) merged with the monitors/correlation-layer branch (Terraform-extracted metrics, wired Stage-2 guard classifier) — both landed cleanly with only two textual merge conflicts (`app/copilot.py`'s `build_copilot` wiring, and this file + `DECISIONS.md`), no semantic clashes. Full per-step log in `TESTING.md`.
+**486 passing, 1 skipped (Playwright, needs a browser), 97% coverage.** No pending (red) specs. (The 377 recorded below was stale — the tree already stood at **388** before the 2026-08-06 session began; +66 in Phase A and +32 in Phase B.) The +78 over the previous 299 came from the 2026-08-05 namespace-scope session (new `tests/test_namespaces.py`, plus namespace/discovery/UI specs added to the datadog, correlation, copilot, config and web-ui suites). The 299 baseline was Iteration 3 (platform-scope config + guard vocabulary + relaxed Scope validation, then the `@`-menu composer rewrite) merged with the monitors/correlation-layer branch (Terraform-extracted metrics, wired Stage-2 guard classifier) — both landed cleanly with only two textual merge conflicts (`app/copilot.py`'s `build_copilot` wiring, and this file + `DECISIONS.md`), no semantic clashes. Full per-step log in `TESTING.md`.
 
 ## Known gap (deferred)
 "`.env` not loading" was **diagnosed (2026-07-08)** as a config-*contents* issue, not a loader bug: the repo `.env` is the untouched template (`data_source=replay`, creds empty), which is why `/api/status` shows defaults. Added `scripts/check_env.py` (safe diagnostic) + `dotenv_path`/`dotenv_loaded` in `/api/status`. To go live on the laptop: run the diagnostic, set `COPILOT_DATA_SOURCE=datadog` + a Datadog credential + `DATADOG_TENANT_TAG` + `DATADOG_METRIC_NAMESPACES`, restart. Still blocks live scope-discovery validation until done on the laptop.

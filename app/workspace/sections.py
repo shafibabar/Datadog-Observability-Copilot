@@ -16,9 +16,11 @@ from typing import Callable
 
 from app.reasoning.models import (
     Confidence,
+    CoverageGap,
     Evidence,
     Hypothesis,
     Investigation,
+    QuestionMapping,
     ReasoningObject,
 )
 from app.telemetry.models import EventSource, TelemetryEvent
@@ -60,7 +62,10 @@ class Section:
 # --- populate functions (pure: Investigation -> content) -------------------
 
 def _executive_summary(inv: Investigation) -> str:
-    return inv.summary
+    """The descriptive read. The Workspace is where prose belongs — the chat
+    reply carries the one-line headline and the hard numbers instead. Older
+    snapshots have no narrative, so the headline stands in."""
+    return inv.narrative or inv.summary
 
 
 def _current_health(inv: Investigation):
@@ -111,9 +116,25 @@ def _confidence_assessment(inv: Investigation):
     return {h.statement: h.confidence for h in inv.hypotheses}
 
 
+def _metrics_queried(inv: Investigation):
+    """Every metric this pass actually asked for, including the ones that came
+    back empty — "we looked and found nothing" is a different answer from "we
+    never looked", and only this section can tell them apart."""
+    return [e for e in inv.evidence.values() if e.kind == "metric"]
+
+
+def _coverage_gaps(inv: Investigation):
+    return list(inv.gaps)
+
+
+def _question_mapping(inv: Investigation):
+    return inv.mapping
+
+
 # --- the registry (config-driven, extensible) ------------------------------
 
 REGISTRY: list[Section] = [
+    Section("question_mapping", "How This Was Read", 5, _question_mapping),
     Section("executive_summary", "Executive Summary", 10, _executive_summary),
     Section("current_health", "Current System Health", 20, _current_health),
     Section("timeline", "Timeline of Events", 30, _timeline),
@@ -123,6 +144,8 @@ REGISTRY: list[Section] = [
     Section("affected_services", "Affected Services", 70, _affected_services),
     Section("customer_impact", "Customer Impact", 80, _customer_impact),
     Section("recommended_next_steps", "Recommended Next Steps", 90, _recommended_next_steps),
+    Section("coverage_gaps", "Coverage Gaps", 95, _coverage_gaps),
+    Section("metrics_queried", "Metrics Queried", 98, _metrics_queried),
     Section("outstanding_questions", "Outstanding Questions", 100, _outstanding_questions),
     Section("confidence", "Confidence Assessment", 110, _confidence_assessment),
 ]
@@ -142,8 +165,25 @@ def _serialize_content(content: object) -> dict:
     """Map a section's heterogeneous content to a JSON-friendly payload tagged
     with a display `kind`, dispatched on the content's type so new sections
     serialize automatically as long as they reuse the existing content types."""
+    if content is None:
+        return {"kind": "empty", "items": []}
+
     if isinstance(content, str):
         return {"kind": "text", "text": content}
+
+    if isinstance(content, QuestionMapping):
+        return {"kind": "mapping", "items": [
+            {"label": label, "value": value}
+            for label, value in (
+                ("Understood as", content.intent or ""),
+                ("Services", ", ".join(content.services)),
+                ("Stage", ", ".join(content.stages)),
+                ("Metric family", content.metric_type or ""),
+                ("Window", content.window or ""),
+                ("Terms", "; ".join(content.terms)),
+            )
+            if value
+        ]}
 
     if isinstance(content, dict):
         values = list(content.values())
@@ -178,6 +218,13 @@ def _serialize_content(content: object) -> dict:
             return {"kind": "claims", "items": [{
                 "claim": r.claim, "confidence": r.confidence.value, "evidence": r.evidence,
             } for r in content]}
+        if isinstance(first, CoverageGap):
+            return {"kind": "gaps", "items": [{
+                "topic": g.topic.replace("_", " "),
+                "gap_kind": g.kind,
+                "reason": g.reason,
+                "check": g.check,
+            } for g in content]}
         if isinstance(first, Evidence):
             return {"kind": "evidence", "items": [e.model_dump() for e in content]}
         if isinstance(first, str):

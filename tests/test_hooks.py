@@ -65,3 +65,43 @@ def test_blank_and_whitespace_paths_are_ignored():
     # `git diff --cached --name-only` output ends with a newline.
     assert not missing_log_entry(["", "  "])
     assert missing_log_entry(["tests/test_x.py", ""])
+
+
+# --- the hook script itself -------------------------------------------------
+#
+# The shell script is not executed here (it needs a real git commit), but its
+# interpreter-discovery contract is asserted declaratively: hardcoding `python3`
+# made the hook a no-op-then-crash on Windows, where that name resolves to the
+# Microsoft Store alias stub — on PATH, satisfying `command -v`, exiting 49
+# without running anything.
+
+from pathlib import Path as _Path
+
+_HOOK = _Path(__file__).resolve().parents[1] / ".githooks" / "pre-commit"
+
+
+def test_hook_probes_candidates_instead_of_assuming_one_interpreter():
+    script = _HOOK.read_text(encoding="utf-8")
+    # Probed with a no-op program, because being on PATH is not proof it runs.
+    assert '-c ""' in script
+    for candidate in ("python3", "python", "py"):
+        assert candidate in script
+
+
+def test_hook_prefers_the_repos_own_venv():
+    script = _HOOK.read_text(encoding="utf-8")
+    assert ".venv/Scripts/python.exe" in script   # Windows layout
+    assert ".venv/bin/python" in script           # POSIX layout
+
+
+def test_hook_fails_closed_when_no_interpreter_works():
+    """A skipped check is indistinguishable from a passed one — the whole point
+    of this hook is that a tests/ change cannot land unlogged."""
+    script = _HOOK.read_text(encoding="utf-8")
+    assert "exit 1" in script
+    assert "--no-verify" in script
+
+
+def test_hook_still_delegates_to_the_unit_tested_checker():
+    script = _HOOK.read_text(encoding="utf-8")
+    assert "scripts/check_testing_log.py" in script

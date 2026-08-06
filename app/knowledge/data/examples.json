@@ -1,0 +1,887 @@
+{
+  "$schema": "ec-surveillance-nlp-examples/v1",
+  "metadata": {
+    "name": "EC Surveillance NLP Examples Corpus",
+    "description": "Training/eval corpus of natural-language utterances a non-technical user might type, each mapped to the parsed intent + normalized slots + the deterministic resolved Datadog/OTel query. Companion to ec-surveillance-datadog-metrics-nlp.json (intents/entities/interpreter live there). Full series name = GROUP_NAME + '.' + metricName.",
+    "intentLegend": {
+      "GET_THROUGHPUT": "counter / consumption rate (how many, volume)",
+      "GET_LATENCY": "histogram (how slow, response time, p99/p95)",
+      "GET_ERRORS": "error_counter / error_rate (failures)",
+      "GET_DEADLETTER": "dlt_counter (given up / poison messages)",
+      "GET_LAG": "kafka.consumer_lag (backed up / behind)",
+      "GET_PODHEALTH": "k8s infra (restarts / OOM / cpu)",
+      "GET_COMPARISON": "two-series comparison",
+      "GET_BUSINESS_KPI": "domain outcome counts (sampled, filtered, alerted, reconciled)"
+    },
+    "slotLegend": {
+      "intent": "matched intent id",
+      "service": "canonical repo name",
+      "object": "canonical domain object (see grammar globalConcepts)",
+      "metricType": "counter|latency|error_counter|dlt_counter|lag|gauge",
+      "aggregation": "sum_as_rate|p99|p95|p50|avg|max",
+      "tenant": "resolved tenant filter or * ",
+      "timeRange": "resolved lookback window",
+      "resolvedQuery": "concrete series the interpreter emits",
+      "confidence": "verified|medium|inferred"
+    }
+  },
+  "examples": [
+    {
+      "id": "TH-001",
+      "utterance": "how many messages did the indexer process today?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-indexer",
+        "object": "communication",
+        "metricType": "counter",
+        "aggregation": "sum_as_rate",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.indexer.ingested_communication_consumption_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-002",
+      "utterance": "how many ingested comms came into the indexer for acme this week?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-indexer",
+        "object": "ingestedCommunication",
+        "metricType": "counter",
+        "tenant": "acme",
+        "timeRange": "1w"
+      },
+      "resolvedQuery": "sum:ec.indexer.ingested_communication_consumption_rate{tenant:acme}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-003",
+      "utterance": "volume of surveilled communications indexed",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-indexer",
+        "object": "surveilledEvent",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.indexer.surveilled_communication_consumption_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-004",
+      "utterance": "how busy is the qualifier?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-queue-qualifier",
+        "object": "qualifiedCommunication",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "4h"
+      },
+      "resolvedQuery": "sum:<groupName>.<qualifier_consumer>_counter{*} by {tenant}.as_rate()",
+      "confidence": "medium"
+    },
+    {
+      "id": "TH-005",
+      "utterance": "how many alerts did we generate for tenant beta?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-alerting-service",
+        "object": "alert",
+        "metricType": "counter",
+        "tenant": "beta",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:<surveilled_consumer>_counter{tenant:beta} by {tenant}.as_count()",
+      "confidence": "medium",
+      "note": "alerting emits per-consumer {consumer}_counter; alert count approximated by surveilled-consumer throughput"
+    },
+    {
+      "id": "TH-006",
+      "utterance": "how many supervised-item fetches hit the alerting API?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-alerting-service",
+        "object": "supervisedItem",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:supervised_item_get_api_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-007",
+      "utterance": "how many reviewer groups were created?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-review-service",
+        "object": "review",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1w"
+      },
+      "resolvedQuery": "sum:ec.review_service.create_reviewer_group_hit_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-008",
+      "utterance": "how many CSV imports ran in review service?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-review-service",
+        "object": "review",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1w"
+      },
+      "resolvedQuery": "sum:ec.review_service.import_csv_api_hit_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-009",
+      "utterance": "how many status checks did manual runs handle?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-manual-runs-service",
+        "object": "manualRun",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:status_check_request_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-010",
+      "utterance": "how many remediation searches did manual runs consume?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-manual-runs-service",
+        "object": "remediation",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:remediation_search_consumption_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-011",
+      "utterance": "how many echo audit events were consumed?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-echo-engine",
+        "object": "echo",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:AUDIT_ADAPTER_CONSUMPTION_COUNTER{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "TH-012",
+      "utterance": "how many /source calls hit centralised audit?",
+      "parsed": {
+        "intent": "GET_THROUGHPUT",
+        "service": "ec-centralised-audit",
+        "object": "audit",
+        "metricType": "counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:SOURCE_API_COUNTER{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-001",
+      "utterance": "how slow is the alert fetch API for customer acme?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-alerting-service",
+        "object": "supervisedItem",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "acme",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "p99:supervised_item_get_api_latency{tenant:acme} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-002",
+      "utterance": "what's the p95 latency of indexing ingested comms?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-indexer",
+        "object": "ingestedCommunication",
+        "metricType": "latency",
+        "aggregation": "p95",
+        "tenant": "*",
+        "timeRange": "4h"
+      },
+      "resolvedQuery": "p95:ec.indexer.ingested_communication_event_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-003",
+      "utterance": "how long does surveilled indexing take?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-indexer",
+        "object": "surveilledEvent",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "4h"
+      },
+      "resolvedQuery": "p99:ec.indexer.surveilled_communication_event_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-004",
+      "utterance": "is the fetch-policy API slow in the filter?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-surveillance-filter",
+        "object": "policy",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "p99:ec.surveillance_filter.fetch_policies_by_pipeline_api_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-005",
+      "utterance": "how slow is single policy lookup by id?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-surveillance-filter",
+        "object": "policy",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "p99:ec.surveillance_filter.policy_api_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-006",
+      "utterance": "how long does the filter take to fetch enriched content from s3?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-surveillance-filter",
+        "object": "enrichedCommunication",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "4h"
+      },
+      "resolvedQuery": "p99:ec.surveillance_filter.enriched_comm_fetch_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-007",
+      "utterance": "response time to save audit metadata in the quota manager",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-surveillance-quota-manager",
+        "object": "quota_sampling",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "4h"
+      },
+      "resolvedQuery": "p99:<groupName>.mongo_save_audit_metadata_outbox_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-008",
+      "utterance": "how slow is saving cognition audio metadata?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-surveillance-quota-manager",
+        "object": "quota_sampling",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "4h"
+      },
+      "resolvedQuery": "p99:<groupName>.mongo_save_cognition_audio_metadata_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-009",
+      "utterance": "how long is the reconciliation job taking in centralised audit?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-centralised-audit",
+        "object": "reconciliation",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "p99:recon_job_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-010",
+      "utterance": "how slow is source reconciliation?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-centralised-audit",
+        "object": "reconciliation",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "p99:source_recon_job_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-011",
+      "utterance": "how fast are echo mongo lookups?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-echo-engine",
+        "object": "echo",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "4h",
+        "tags": {
+          "operation": "findEchoCandidates"
+        }
+      },
+      "resolvedQuery": "p99:MONGO_OPERATION_LATENCY{operation:findEchoCandidates} by {tenant,collection}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-012",
+      "utterance": "how slow is the reviewer-groups list endpoint?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-review-service",
+        "object": "review",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "p99:ec.review_service.get_reviewer_groups_list_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LA-013",
+      "utterance": "how long does the lookback status check take?",
+      "parsed": {
+        "intent": "GET_LATENCY",
+        "service": "ec-manual-runs-service",
+        "object": "lookback",
+        "metricType": "latency",
+        "aggregation": "p99",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "p99:status_check_request_latency{*} by {tenant}",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-001",
+      "utterance": "how many errors is the indexer throwing?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-indexer",
+        "object": "index",
+        "metricType": "error_counter",
+        "aggregation": "sum_as_rate",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.indexer.indexing_error_counter{*} by {tenant,exception}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-002",
+      "utterance": "what's failing when indexing surveilled comms?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-indexer",
+        "object": "surveilledEvent",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.indexer.surveilled_communication_error_counter{*} by {tenant,exception}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-003",
+      "utterance": "how many alerted-communication indexing errors?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-indexer",
+        "object": "alert",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.indexer.alerted_communication_error_counter{*} by {tenant,exception}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-004",
+      "utterance": "is policy evaluation failing in the filter?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-surveillance-filter",
+        "object": "filter_evaluate",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.surveillance_filter.policy_evaluation_error_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-005",
+      "utterance": "how many manual-run policy evaluation failures?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-surveillance-filter",
+        "object": "filter_evaluate",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.surveillance_filter.manual_run_policy_evaluation_error_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-006",
+      "utterance": "errors on the fetch-policy API",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-surveillance-filter",
+        "object": "policy",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.surveillance_filter.<METRIC_FETCH_POLICY_BY_PIPELINE_API_ERROR_COUNTER>{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-007",
+      "utterance": "how many bootstrap-config setups failed in the filter?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-surveillance-filter",
+        "object": "config",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1w"
+      },
+      "resolvedQuery": "sum:ec.surveillance_filter.bootstrap_config_api_error_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-008",
+      "utterance": "audit-adapter sync errors in the filter",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-surveillance-filter",
+        "object": "audit",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.surveillance_filter.audit_adapter_sync_error_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-009",
+      "utterance": "how many remediation forwards failed in the gateway?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-gateway",
+        "object": "remediation",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:<groupName>.remediation_event_forward_error_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-010",
+      "utterance": "how many conduct-audit publishes failed in reporting?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-reporting",
+        "object": "audit",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:<groupName>.CONDUCT_AUDIT_PUBLISH_ERROR_RATE{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-011",
+      "utterance": "how many pipeline-qualifier calls failed from reporting?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-reporting",
+        "object": "qualify",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:<groupName>.PIPELINE_QUALIFIER_API_ERROR_RATE{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-012",
+      "utterance": "how many source reconciliation jobs errored?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-centralised-audit",
+        "object": "reconciliation",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:source_recon_job_error_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-013",
+      "utterance": "how many echo mongo operations failed?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-echo-engine",
+        "object": "echo",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:MONGO_OPERATION_ERROR_COUNTER{*} by {tenant,operation}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-014",
+      "utterance": "how many KPI events failed in the filter?",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-surveillance-filter",
+        "object": "report",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.surveillance_filter.kpi_event_consumer_error_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "ER-015",
+      "utterance": "reviewer-group create errors",
+      "parsed": {
+        "intent": "GET_ERRORS",
+        "service": "ec-review-service",
+        "object": "review",
+        "metricType": "error_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.review_service.create_reviewer_group_error_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "DL-001",
+      "utterance": "how many surveilled comms did the indexer give up on?",
+      "parsed": {
+        "intent": "GET_DEADLETTER",
+        "service": "ec-indexer",
+        "object": "surveilledEvent",
+        "metricType": "dlt_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:ec.indexer.surveilled_communication_error_counter{*} by {tenant}.as_count()",
+      "confidence": "medium",
+      "note": "indexer routes to DLT via retryTopicManager; dedicated DLT counter not confirmed, error_counter used as proxy"
+    },
+    {
+      "id": "DL-002",
+      "utterance": "how many audit events were dead-lettered in centralised audit?",
+      "parsed": {
+        "intent": "GET_DEADLETTER",
+        "service": "ec-centralised-audit",
+        "object": "audit",
+        "metricType": "dlt_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:COMM_EVENT_DLT_COUNTER{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "DL-003",
+      "utterance": "how many alerts got dead-lettered?",
+      "parsed": {
+        "intent": "GET_DEADLETTER",
+        "service": "ec-alerting-service",
+        "object": "alert",
+        "metricType": "dlt_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:surveilled_communication_event_dlt_counter{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "DL-004",
+      "utterance": "how many remediation DLT messages did manual runs consume?",
+      "parsed": {
+        "intent": "GET_DEADLETTER",
+        "service": "ec-manual-runs-service",
+        "object": "remediation",
+        "metricType": "dlt_counter",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:remediation_dlt_consumption_rate{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "LG-001",
+      "utterance": "is the quota manager backed up?",
+      "parsed": {
+        "intent": "GET_LAG",
+        "service": "ec-surveillance-quota-manager",
+        "metricType": "lag",
+        "tenant": "*",
+        "timeRange": "1h"
+      },
+      "resolvedQuery": "max:kafka.consumer_lag{consumer_group:ec.surveillance-quota-manager.surveilled.consumer-group} by {topic,partition}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LG-002",
+      "utterance": "is the filter falling behind on qualifications?",
+      "parsed": {
+        "intent": "GET_LAG",
+        "service": "ec-surveillance-filter",
+        "metricType": "lag",
+        "tenant": "*",
+        "timeRange": "1h"
+      },
+      "resolvedQuery": "max:kafka.consumer_lag{consumer_group:ec.surveillance-filter.qualifications.consumer-group} by {topic,partition}",
+      "confidence": "verified"
+    },
+    {
+      "id": "LG-003",
+      "utterance": "is the indexer lagging on ingestion?",
+      "parsed": {
+        "intent": "GET_LAG",
+        "service": "ec-indexer",
+        "metricType": "lag",
+        "tenant": "*",
+        "timeRange": "1h"
+      },
+      "resolvedQuery": "max:kafka.consumer_lag{consumer_group:ec.surveillance-qualifier.ingestion.consumer-group} by {topic,partition}",
+      "confidence": "medium",
+      "note": "confirm indexer ingestion consumer-group literal from application.yaml"
+    },
+    {
+      "id": "LG-004",
+      "utterance": "is centralised audit keeping up with the audit topic?",
+      "parsed": {
+        "intent": "GET_LAG",
+        "service": "ec-centralised-audit",
+        "metricType": "lag",
+        "tenant": "*",
+        "timeRange": "1h"
+      },
+      "resolvedQuery": "max:kafka.consumer_lag{consumer_group:ec-centralised-audit.audit.consumer-group} by {topic,partition}",
+      "confidence": "verified"
+    },
+    {
+      "id": "PH-001",
+      "utterance": "is the alerting service pod restarting?",
+      "parsed": {
+        "intent": "GET_PODHEALTH",
+        "service": "ec-alerting-service",
+        "metricType": "gauge",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:kubernetes_state.container.restarts{kube_deployment:ec-alerting-service} by {pod_name}",
+      "confidence": "medium"
+    },
+    {
+      "id": "PH-002",
+      "utterance": "is the quota manager running out of memory?",
+      "parsed": {
+        "intent": "GET_PODHEALTH",
+        "service": "ec-surveillance-quota-manager",
+        "metricType": "gauge",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "max:kubernetes.memory.usage{kube_deployment:ec-surveillance-quota-manager} by {pod_name}",
+      "confidence": "medium"
+    },
+    {
+      "id": "KPI-001",
+      "utterance": "how many communications were sampled by the quota manager?",
+      "parsed": {
+        "intent": "GET_BUSINESS_KPI",
+        "service": "ec-surveillance-quota-manager",
+        "object": "quota_sampling",
+        "businessOutcome": "SURVEILLED_COMMS_SAMPLED",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:<groupName>.<sampling_counter>{outcome:SURVEILLED_COMMS_SAMPLED} by {tenant}.as_count()",
+      "confidence": "inferred",
+      "note": "SURVEILLED_COMMS_SAMPLED is a domain outcome enum; exact emitting counter literal not source-verified"
+    },
+    {
+      "id": "KPI-002",
+      "utterance": "how many were NOT sampled / dropped by sampling?",
+      "parsed": {
+        "intent": "GET_BUSINESS_KPI",
+        "service": "ec-surveillance-quota-manager",
+        "object": "quota_sampling",
+        "businessOutcome": "SURVEILLED_COMMS_NOT_SAMPLED",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:<groupName>.<sampling_counter>{outcome:SURVEILLED_COMMS_NOT_SAMPLED} by {tenant}.as_count()",
+      "confidence": "inferred"
+    },
+    {
+      "id": "KPI-003",
+      "utterance": "how many messages were qualified into pipelines?",
+      "parsed": {
+        "intent": "GET_BUSINESS_KPI",
+        "service": "ec-queue-qualifier",
+        "object": "qualify",
+        "businessOutcome": "QUALIFIED",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:<groupName>.<qualifier_consumer>_counter{*} by {tenant}.as_count()",
+      "confidence": "medium"
+    },
+    {
+      "id": "KPI-004",
+      "utterance": "how many windows were reconciled?",
+      "parsed": {
+        "intent": "GET_BUSINESS_KPI",
+        "service": "ec-centralised-audit",
+        "object": "reconciliation",
+        "businessOutcome": "RECONCILED",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "sum:SOURCE_RECON_COMPLETED_SUCCESS_COUNTER{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "KPI-005",
+      "utterance": "how big was the athena result set that got rejected in lookback?",
+      "parsed": {
+        "intent": "GET_BUSINESS_KPI",
+        "service": "ec-manual-runs-service",
+        "object": "lookback",
+        "businessOutcome": "guardrail_exceeded",
+        "tenant": "*",
+        "timeRange": "1w"
+      },
+      "resolvedQuery": "sum:lookback_athena_result_guardrail_exceeded_total{*} by {tenant}.as_count()",
+      "confidence": "verified"
+    },
+    {
+      "id": "KPI-006",
+      "utterance": "ingested count watermark reported to audit",
+      "parsed": {
+        "intent": "GET_BUSINESS_KPI",
+        "service": "ec-centralised-audit",
+        "object": "audit",
+        "businessOutcome": "ingested_count",
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "avg:METRIC_INGESTED_COUNT{*} by {tenant,source}",
+      "confidence": "verified"
+    },
+    {
+      "id": "CMP-001",
+      "utterance": "compare how many comms were qualified vs how many got filtered out",
+      "parsed": {
+        "intent": "GET_COMPARISON",
+        "services": [
+          "ec-queue-qualifier",
+          "ec-surveillance-filter"
+        ],
+        "objects": [
+          "qualify",
+          "filter_evaluate"
+        ],
+        "tenant": "*",
+        "timeRange": "1d"
+      },
+      "resolvedQuery": "series_a = sum:<qq>.<qualifier_consumer>_counter{*}.as_count() ; series_b = sum:ec.surveillance_filter.policy_evaluation_error_counter{*}.as_count()",
+      "confidence": "medium",
+      "note": "cross-service comparison; interpreter emits two series for the client to overlay"
+    },
+    {
+      "id": "CMP-002",
+      "utterance": "sampled vs alerted this week for acme",
+      "parsed": {
+        "intent": "GET_COMPARISON",
+        "services": [
+          "ec-surveillance-quota-manager",
+          "ec-alerting-service"
+        ],
+        "objects": [
+          "quota_sampling",
+          "alert"
+        ],
+        "tenant": "acme",
+        "timeRange": "1w"
+      },
+      "resolvedQuery": "series_a = SURVEILLED_COMMS_SAMPLED count{tenant:acme} ; series_b = <surveilled_consumer>_counter{tenant:acme}",
+      "confidence": "inferred"
+    }
+  ],
+  "unresolvedPatternsForTraining": {
+    "description": "Utterances the interpreter should recognise but that currently resolve to a family/placeholder rather than an exact series. Useful negative/low-confidence training data.",
+    "cases": [
+      {
+        "utterance": "how many quota windows did we create?",
+        "reason": "create_next_quota_window_api family known, exact counter literal not source-verified",
+        "service": "ec-surveillance-quota-manager"
+      },
+      {
+        "utterance": "gateway ingestion throughput",
+        "reason": "ingestion_gateway_event_consumer_* family only; exact literal not verified",
+        "service": "ec-gateway"
+      },
+      {
+        "utterance": "how many echoes vs originals were detected?",
+        "reason": "echo classification counters (ORIGINAL/ECHO/OUT_OF_ORDER) not confirmed as separate series",
+        "service": "ec-echo-engine"
+      }
+    ]
+  }
+}

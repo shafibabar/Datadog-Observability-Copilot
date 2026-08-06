@@ -1,0 +1,1321 @@
+{
+  "$schema": "ec-surveillance-error-catalog/v1",
+  "metadata": {
+    "name": "EC Surveillance Error Catalog & Synonym Map",
+    "description": "All error constructs emitted across the 12 Enterprise Conduct (EC) surveillance repos: custom exception classes, per-service API ErrorCode enums, runtime log-error phrases, and Kafka failure/DLT event names. Includes user-facing synonyms so a model can map non-technical phrasing (e.g. 'it broke', 'stuck', 'rejected') to concrete errors.",
+    "confidenceNotes": {
+      "apiErrorCodes": "Verified from ErrorCode.java enums except ec-gateway and ec-manual-runs-service (no enum; GlobalExceptionHandler + ErrorResponse).",
+      "customExceptions": "Class names verified via file listing. Exact throw-site message strings only known where explicitly captured; others null.",
+      "runtimeLogErrors": "Representative sample from eventRecorder.error/fatal call sites, not exhaustive."
+    }
+  },
+  "commonAcrossAllRepos": {
+    "sharedExceptions": [
+      {
+        "class": "NonRetryableEventException",
+        "meaning": "Event should NOT be retried; route straight to DLT.",
+        "userSynonyms": [
+          "permanent failure",
+          "unrecoverable",
+          "gave up",
+          "dead-lettered",
+          "poison message",
+          "bad message"
+        ]
+      },
+      {
+        "class": "CloneCollectionException",
+        "meaning": "bootstrap-config collection clone failed (source collection missing).",
+        "userSynonyms": [
+          "setup failed",
+          "bootstrap failed",
+          "config copy failed",
+          "missing collection"
+        ],
+        "presentIn": [
+          "ec-queue-qualifier",
+          "ec-surveillance-filter",
+          "ec-surveillance-policy-evaluator",
+          "ec-surveillance-quota-manager",
+          "ec-alerting-service",
+          "ec-reporting",
+          "ec-centralised-audit",
+          "ec-echo-engine"
+        ]
+      }
+    ],
+    "sharedApiErrorCodes": [
+      {
+        "key": "BAD_REQUEST",
+        "description": "Bad request - invalid or missing parameters",
+        "http": 400,
+        "userSynonyms": [
+          "bad request",
+          "invalid input",
+          "wrong parameters",
+          "malformed request",
+          "missing fields"
+        ]
+      },
+      {
+        "key": "INVALID_TENANT",
+        "description": "Invalid tenant name. Tenant is not in the list of enabled tenants",
+        "http": 400,
+        "userSynonyms": [
+          "unknown customer",
+          "tenant not enabled",
+          "org not found",
+          "not onboarded",
+          "disabled tenant"
+        ]
+      },
+      {
+        "key": "INTERNAL_SERVER_ERROR",
+        "description": "Internal server error",
+        "http": 500,
+        "userSynonyms": [
+          "it broke",
+          "crashed",
+          "server error",
+          "something went wrong",
+          "500 error",
+          "unexpected error"
+        ]
+      },
+      {
+        "key": "SOURCE_COLLECTION_DOESNT_EXIST",
+        "description": "Source collection does not exist",
+        "http": 500,
+        "userSynonyms": [
+          "missing data",
+          "collection not found",
+          "no source",
+          "setup missing"
+        ]
+      },
+      {
+        "key": "VALIDATION_ERROR",
+        "description": "Validation error",
+        "http": 400,
+        "userSynonyms": [
+          "invalid",
+          "rejected",
+          "failed validation",
+          "not allowed",
+          "constraint violation"
+        ]
+      }
+    ],
+    "servicePrefixes": {
+      "ec-surveillance-filter": "SF",
+      "ec-reporting": "ER",
+      "ec-alerting-service": "AS",
+      "ec-queue-qualifier": "QQ",
+      "ec-centralised-audit": "CA",
+      "ec-surveillance-quota-manager": "QM",
+      "ec-surveillance-policy-evaluator": "PE",
+      "ec-echo-engine": "EE"
+    }
+  },
+  "repositories": {
+    "ec-gateway": {
+      "apiErrorCodesKnown": false,
+      "apiHandling": [
+        "GlobalExceptionHandler (watermark)",
+        "ErrorResponse",
+        "BadRequestException"
+      ],
+      "customExceptions": [
+        {
+          "class": "DuplicateRecordException",
+          "userSynonyms": [
+            "already exists",
+            "duplicate",
+            "repeat record"
+          ]
+        },
+        {
+          "class": "NonRetryableException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "BulkIndexEventDeserealizationException",
+          "userSynonyms": [
+            "bad message",
+            "cannot parse",
+            "corrupt event"
+          ]
+        },
+        {
+          "class": "ManualRunEventDeserealizationException",
+          "userSynonyms": [
+            "bad manual-run message",
+            "cannot parse re-run event"
+          ]
+        },
+        {
+          "class": "RemediationEventDeserealizationException",
+          "userSynonyms": [
+            "bad remediation message",
+            "cannot parse remediation event"
+          ]
+        },
+        {
+          "class": "DuplicateCommunicationException",
+          "userSynonyms": [
+            "duplicate message",
+            "already ingested",
+            "seen before"
+          ]
+        },
+        {
+          "class": "ConductIndexProcessingException",
+          "message": "Failed to process indexable.json for ingested communication with GCID: <gcid>",
+          "userSynonyms": [
+            "indexing failed",
+            "processing failed",
+            "couldn't build index doc"
+          ]
+        },
+        {
+          "class": "CdcEventDeserealizationException",
+          "userSynonyms": [
+            "bad CDC event",
+            "cannot parse change event"
+          ]
+        },
+        {
+          "class": "BadRequestException",
+          "userSynonyms": [
+            "bad request",
+            "invalid input"
+          ]
+        }
+      ],
+      "runtimeLogErrors": [
+        "Error processing message published on <topic>",
+        "Failed to process IngestedCommunication"
+      ],
+      "failureEventNames": [
+        "ec.surveillance-gateway.communication.ingestion-failed",
+        "ec.surveillance-gateway.remediation.failed",
+        "ec.surveillance-gateway.remediation.forward-failed",
+        "ec.surveillance-gateway.remediation.duplicate-message-detected",
+        "ec.surveillance-gateway.communication.duplicate-message-detected"
+      ]
+    },
+    "ec-queue-qualifier": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [
+        {
+          "key": "RESOURCE_NOT_FOUND",
+          "code": "QQ-006",
+          "description": "Resource not found",
+          "userSynonyms": [
+            "not found",
+            "missing",
+            "doesn't exist"
+          ]
+        },
+        {
+          "key": "PIPELINES_LIMIT_EXCEEDED",
+          "code": "QQ-007",
+          "description": "Pipelines query parameter exceeds maximum allowed limit",
+          "userSynonyms": [
+            "too many pipelines",
+            "too many queues",
+            "limit exceeded",
+            "over the cap"
+          ]
+        }
+      ],
+      "customExceptions": [
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        },
+        {
+          "class": "ResourceNotFoundException",
+          "userSynonyms": [
+            "not found",
+            "missing"
+          ]
+        },
+        {
+          "class": "IssClientException",
+          "userSynonyms": [
+            "identity service failed",
+            "ISS error",
+            "group lookup failed"
+          ]
+        },
+        {
+          "class": "InvalidIngestedCommunicationStreamException",
+          "userSynonyms": [
+            "bad communication file",
+            "corrupt stream",
+            "unreadable message"
+          ]
+        },
+        {
+          "class": "RecursionLimitExceededException",
+          "userSynonyms": [
+            "too deeply nested",
+            "recursion limit",
+            "too many levels"
+          ]
+        }
+      ],
+      "runtimeLogErrors": [
+        "Error processing message. Publishing for retry 1",
+        "Error processing message. Publishing for <topic>"
+      ]
+    },
+    "ec-surveillance-filter": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [
+        {
+          "key": "PIPELINE_NOT_FOUND",
+          "code": "SF-006",
+          "description": "Pipeline not found",
+          "userSynonyms": [
+            "queue not found",
+            "pipeline missing",
+            "no such pipeline"
+          ]
+        }
+      ],
+      "customExceptions": [
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        },
+        {
+          "class": "PipelineNotFoundException",
+          "userSynonyms": [
+            "queue not found",
+            "pipeline missing"
+          ]
+        },
+        {
+          "class": "PolicyEvaluationFailedException",
+          "userSynonyms": [
+            "rule failed",
+            "policy check failed",
+            "evaluation error",
+            "filter error"
+          ]
+        },
+        {
+          "class": "ResourceFetchFailedException",
+          "userSynonyms": [
+            "couldn't load",
+            "fetch failed",
+            "download failed"
+          ]
+        },
+        {
+          "class": "PolicyHydratorException",
+          "userSynonyms": [
+            "policy load failed",
+            "couldn't build policy",
+            "policy hydration error"
+          ]
+        },
+        {
+          "class": "LibraryListExtractorException",
+          "userSynonyms": [
+            "lexicon load failed",
+            "library extract failed",
+            "keyword list error"
+          ]
+        },
+        {
+          "class": "LibraryListHydratorException",
+          "userSynonyms": [
+            "lexicon build failed",
+            "library hydration error"
+          ]
+        }
+      ],
+      "runtimeLogErrors": [
+        "Exception caught in GlobalExceptionHandler",
+        "Invalid tenant provided",
+        "Validation constraint violation",
+        "Error processing message. Publishing for <topic>"
+      ]
+    },
+    "ec-surveillance-policy-evaluator": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [],
+      "customExceptions": [
+        {
+          "class": "CognitionConfigurationException",
+          "userSynonyms": [
+            "AI config error",
+            "cognition misconfigured",
+            "NLP setup failed"
+          ]
+        },
+        {
+          "class": "EaStorageClientException",
+          "userSynonyms": [
+            "storage error",
+            "EA storage failed",
+            "content fetch failed"
+          ]
+        },
+        {
+          "class": "DeserializationException",
+          "userSynonyms": [
+            "bad message",
+            "cannot parse",
+            "corrupt event"
+          ]
+        },
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        }
+      ],
+      "runtimeLogErrors": [],
+      "comsFailureStatuses": [
+        "PASS",
+        "FAIL",
+        "TIMEOUT",
+        "LATE",
+        "FILTER"
+      ]
+    },
+    "ec-surveillance-quota-manager": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [
+        {
+          "key": "TIMEZONE_NOT_CONFIGURED",
+          "code": "QM-001",
+          "description": "Timezone not configured for tenant",
+          "userSynonyms": [
+            "no timezone",
+            "timezone missing",
+            "tenant timezone not set"
+          ]
+        }
+      ],
+      "customExceptions": [
+        {
+          "class": "PipelineQualifierClientException",
+          "userSynonyms": [
+            "qualifier call failed",
+            "participant lookup failed"
+          ]
+        },
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "InvalidIngestedCommunicationStreamException",
+          "userSynonyms": [
+            "bad communication file",
+            "corrupt stream"
+          ]
+        },
+        {
+          "class": "RecursionLimitExceededException",
+          "userSynonyms": [
+            "too deeply nested",
+            "recursion limit"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        },
+        {
+          "class": "CurrentQuotaWindowNotFoundException",
+          "userSynonyms": [
+            "no quota window",
+            "sampling window missing",
+            "no active window",
+            "no sample period"
+          ]
+        },
+        {
+          "class": "TenantTimezoneNotConfiguredException",
+          "userSynonyms": [
+            "no timezone",
+            "timezone missing"
+          ]
+        },
+        {
+          "class": "DomainConversionException",
+          "userSynonyms": [
+            "conversion failed",
+            "mapping error",
+            "couldn't convert config"
+          ]
+        },
+        {
+          "class": "NoNextQuotaWindowException",
+          "userSynonyms": [
+            "no next window",
+            "cannot roll window",
+            "no upcoming sample period"
+          ]
+        }
+      ],
+      "runtimeLogErrors": [
+        "bootstrap-config failed",
+        "Exception caught in GlobalExceptionHandler"
+      ],
+      "samplingOutcomes": [
+        "SURVEILLED_COMMS_SAMPLED",
+        "SURVEILLED_COMMS_NOT_SAMPLED"
+      ]
+    },
+    "ec-alerting-service": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [
+        {
+          "key": "SUPERVISED_ITEM_NOT_FOUND",
+          "code": "AS-006",
+          "description": "Supervised item not found",
+          "userSynonyms": [
+            "alert not found",
+            "case missing",
+            "item not found",
+            "no such alert"
+          ]
+        }
+      ],
+      "customExceptions": [
+        {
+          "class": "AlertPublishException",
+          "userSynonyms": [
+            "alert send failed",
+            "couldn't publish alert",
+            "alert emit error"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        },
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "SupervisedItemFetchException",
+          "userSynonyms": [
+            "couldn't load alert",
+            "fetch item failed"
+          ]
+        },
+        {
+          "class": "SupervisedItemNotFoundException",
+          "userSynonyms": [
+            "alert not found",
+            "case missing"
+          ]
+        },
+        {
+          "class": "EchoEventPublishException",
+          "userSynonyms": [
+            "echo send failed",
+            "couldn't publish echo"
+          ]
+        }
+      ],
+      "runtimeLogErrors": [
+        "Failed to process surveilled communication event",
+        "Failed to get monitored populations",
+        "Failed to get policy info",
+        "Failed to parse storage JSON",
+        "Error in RetentionConsumer"
+      ],
+      "errorMetrics": [
+        "surveilled_communication_event_error_counter",
+        "surveilled_communication_retention_event_error_counter"
+      ]
+    },
+    "ec-indexer": {
+      "apiErrorCodesKnown": false,
+      "customExceptions": [
+        {
+          "class": "ChildIndexingException",
+          "userSynonyms": [
+            "audio index failed",
+            "child doc failed",
+            "transcript index error"
+          ]
+        },
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "ParentIndexingException",
+          "userSynonyms": [
+            "index failed",
+            "parent doc failed",
+            "couldn't index message"
+          ]
+        },
+        {
+          "class": "ParentReIndexEventDeserializationException",
+          "userSynonyms": [
+            "bad reindex event",
+            "cannot parse reindex message"
+          ]
+        },
+        {
+          "class": "S3FetchException",
+          "userSynonyms": [
+            "download failed",
+            "S3 error",
+            "couldn't fetch file",
+            "storage fetch failed"
+          ]
+        },
+        {
+          "class": "BulkPartialFailureException",
+          "userSynonyms": [
+            "partial failure",
+            "some docs failed",
+            "bulk index partial error"
+          ]
+        }
+      ],
+      "runtimeLogErrors": [
+        "Kafka connectivity failure (KafkaConnectivityHealthIndicator)",
+        "Elasticsearch health failure (ElasticsearchHealthIndicator)"
+      ],
+      "auditSuccessEvent": "ec.surveillance-indexer.indexed"
+    },
+    "ec-review-service": {
+      "apiErrorCodesKnown": false,
+      "customExceptions": [
+        {
+          "class": "InvalidCsvDataException",
+          "userSynonyms": [
+            "bad CSV",
+            "invalid upload",
+            "malformed spreadsheet",
+            "bad import file"
+          ]
+        },
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "PipelineReviewerGroupUpdateException",
+          "userSynonyms": [
+            "assignment update failed",
+            "reviewer group update failed",
+            "couldn't update reviewers"
+          ]
+        },
+        {
+          "class": "DuplicateGroupNameException",
+          "userSynonyms": [
+            "group already exists",
+            "duplicate group name",
+            "name taken"
+          ]
+        },
+        {
+          "class": "DuplicateReviewerException",
+          "userSynonyms": [
+            "reviewer already added",
+            "duplicate reviewer"
+          ]
+        },
+        {
+          "class": "GroupAssignedToQueuesException",
+          "userSynonyms": [
+            "group in use",
+            "cannot delete assigned group",
+            "group tied to queues"
+          ]
+        },
+        {
+          "class": "InvalidReviewerIdsException",
+          "userSynonyms": [
+            "unknown reviewer",
+            "invalid reviewer id",
+            "bad user id"
+          ]
+        }
+      ]
+    },
+    "ec-reporting": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [
+        {
+          "key": "INVALID_DATE_RANGE_PARAMETERS",
+          "code": "ER-006",
+          "description": "Invalid date range parameters",
+          "userSynonyms": [
+            "bad dates",
+            "wrong date range",
+            "invalid dates"
+          ]
+        },
+        {
+          "key": "INVALID_PAGE_PARAMETERS",
+          "code": "ER-007",
+          "description": "Invalid page parameters",
+          "userSynonyms": [
+            "bad paging",
+            "invalid page number",
+            "wrong page size"
+          ]
+        },
+        {
+          "key": "INVALID_PIPELINE_EXECUTION_STATUS",
+          "code": "ER-008",
+          "description": "Invalid pipeline execution status",
+          "userSynonyms": [
+            "bad status filter",
+            "invalid run status",
+            "unknown completion state"
+          ]
+        }
+      ],
+      "customExceptions": [
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        },
+        {
+          "class": "GatewayClientException",
+          "userSynonyms": [
+            "gateway call failed",
+            "watermark fetch failed"
+          ]
+        },
+        {
+          "class": "InvalidDateRangeParametersException",
+          "userSynonyms": [
+            "bad dates",
+            "wrong date range"
+          ]
+        },
+        {
+          "class": "InvalidPageParametersException",
+          "userSynonyms": [
+            "bad paging",
+            "invalid page"
+          ]
+        },
+        {
+          "class": "InvalidPipelineExecutionStatusException",
+          "userSynonyms": [
+            "bad status",
+            "invalid run status"
+          ]
+        },
+        {
+          "class": "PipelineQualifierClientException",
+          "userSynonyms": [
+            "qualifier call failed"
+          ]
+        },
+        {
+          "class": "RetryableGatewayException",
+          "userSynonyms": [
+            "gateway temporary failure",
+            "will retry gateway"
+          ]
+        },
+        {
+          "class": "RetryablePipelineQualifierException",
+          "userSynonyms": [
+            "qualifier temporary failure",
+            "will retry qualifier"
+          ]
+        },
+        {
+          "class": "RetryablePipelineCompletionException",
+          "userSynonyms": [
+            "completion temporary failure",
+            "will retry completion"
+          ]
+        }
+      ]
+    },
+    "ec-manual-runs-service": {
+      "apiErrorCodesKnown": false,
+      "apiHandling": [
+        "GlobalErrorHandler",
+        "ErrorResponse"
+      ],
+      "customExceptions": [
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "RetryableException",
+          "userSynonyms": [
+            "temporary failure",
+            "will retry",
+            "transient error"
+          ]
+        },
+        {
+          "class": "ElementNotFoundException",
+          "userSynonyms": [
+            "not found",
+            "missing element",
+            "no such item"
+          ]
+        },
+        {
+          "class": "ManualRunNotFoundException",
+          "userSynonyms": [
+            "re-run not found",
+            "lookback not found",
+            "job not found",
+            "run id missing"
+          ]
+        }
+      ]
+    },
+    "ec-centralised-audit": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [
+        {
+          "key": "INVALID_DATE_RANGE",
+          "code": "CA-006",
+          "description": "Received invalid date range. End date must be after start date",
+          "userSynonyms": [
+            "bad dates",
+            "end before start",
+            "wrong date range"
+          ]
+        },
+        {
+          "key": "NOT_FOUND",
+          "code": "CA-007",
+          "description": "Resource not found",
+          "userSynonyms": [
+            "not found",
+            "missing",
+            "doesn't exist"
+          ]
+        }
+      ],
+      "customExceptions": [
+        {
+          "class": "InvalidDateRangeException",
+          "userSynonyms": [
+            "bad dates",
+            "wrong date range",
+            "end before start"
+          ]
+        },
+        {
+          "class": "ResourceNotFoundException",
+          "userSynonyms": [
+            "not found",
+            "missing"
+          ]
+        },
+        {
+          "class": "MalformedMessageException",
+          "userSynonyms": [
+            "bad message",
+            "corrupt event",
+            "malformed payload"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        },
+        {
+          "class": "HttpRequestFailedException",
+          "userSynonyms": [
+            "http call failed",
+            "request failed",
+            "downstream error"
+          ]
+        },
+        {
+          "class": "NonRetriableHttpRequestFailedException",
+          "userSynonyms": [
+            "permanent http failure",
+            "request permanently failed"
+          ]
+        },
+        {
+          "class": "RetriableHttpRequestFailedException",
+          "userSynonyms": [
+            "http temporary failure",
+            "will retry request"
+          ]
+        },
+        {
+          "class": "ReconciliationTokenInUseException",
+          "userSynonyms": [
+            "recon token in use",
+            "token already used",
+            "reconciliation locked",
+            "duplicate recon token"
+          ]
+        }
+      ]
+    },
+    "ec-echo-engine": {
+      "apiErrorCodesKnown": true,
+      "apiErrorCodes": [],
+      "infrastructureErrorCodes": [
+        {
+          "key": "KAFKA_TIMEOUT",
+          "severity": "HIGH",
+          "description": "Broker did not respond within configured timeout",
+          "userSynonyms": [
+            "kafka timeout",
+            "broker slow",
+            "no response"
+          ]
+        },
+        {
+          "key": "KAFKA_INTERRUPTED_ERROR",
+          "severity": "HIGH",
+          "description": "Producer interrupted",
+          "userSynonyms": [
+            "interrupted",
+            "producer stopped"
+          ]
+        },
+        {
+          "key": "KAFKA_SERIALIZATION_ERROR",
+          "severity": "HIGH",
+          "description": "Message serialization failure",
+          "userSynonyms": [
+            "can't serialize",
+            "encode failed"
+          ]
+        },
+        {
+          "key": "KAFKA_DESERIALIZATION_ERROR",
+          "severity": "HIGH",
+          "description": "Message deserialization failure",
+          "userSynonyms": [
+            "can't parse",
+            "decode failed",
+            "bad message"
+          ]
+        },
+        {
+          "key": "KAFKA_RECORD_TOO_LARGE",
+          "severity": "HIGH",
+          "description": "Message exceeds max.message.bytes limit",
+          "userSynonyms": [
+            "message too big",
+            "payload too large",
+            "over size limit"
+          ]
+        },
+        {
+          "key": "KAFKA_BROKER_UNAVAILABLE",
+          "severity": "HIGH",
+          "description": "Broker unavailable",
+          "userSynonyms": [
+            "broker down",
+            "kafka unavailable"
+          ]
+        },
+        {
+          "key": "KAFKA_NETWORK_ERROR",
+          "severity": "HIGH",
+          "description": "Unable to connect to broker",
+          "userSynonyms": [
+            "can't connect",
+            "network error",
+            "broker unreachable"
+          ]
+        },
+        {
+          "key": "KAFKA_UNKNOWN_ERROR",
+          "severity": "HIGH",
+          "description": "Unknown Kafka error",
+          "userSynonyms": [
+            "kafka error",
+            "unknown broker error"
+          ]
+        },
+        {
+          "key": "MONGO_DUPLICATE_KEY",
+          "severity": "MEDIUM",
+          "description": "Duplicate key",
+          "userSynonyms": [
+            "already exists",
+            "duplicate",
+            "key clash"
+          ]
+        },
+        {
+          "key": "MONGO_DATA_INTEGRITY_ERROR",
+          "severity": "MEDIUM",
+          "description": "Data integrity violation",
+          "userSynonyms": [
+            "integrity error",
+            "bad data",
+            "constraint broken"
+          ]
+        },
+        {
+          "key": "MONGO_CONNECTION_TIMEOUT",
+          "severity": "HIGH",
+          "description": "Connection timeout",
+          "userSynonyms": [
+            "db timeout",
+            "mongo slow",
+            "can't connect to db"
+          ]
+        },
+        {
+          "key": "MONGO_EXECUTION_TIMEOUT",
+          "severity": "HIGH",
+          "description": "Execution timeout",
+          "userSynonyms": [
+            "query timeout",
+            "db slow"
+          ]
+        },
+        {
+          "key": "MONGO_AUTHENTICATION_FAILED",
+          "severity": "HIGH",
+          "description": "Auth failure",
+          "userSynonyms": [
+            "db auth failed",
+            "bad credentials",
+            "login failed"
+          ]
+        },
+        {
+          "key": "MONGO_NETWORK_ERROR",
+          "severity": "HIGH",
+          "description": "Network connectivity issue",
+          "userSynonyms": [
+            "db network error",
+            "can't reach db"
+          ]
+        },
+        {
+          "key": "MONGO_WRITE_CONCERN_ERROR",
+          "severity": "HIGH",
+          "description": "Write concern violation",
+          "userSynonyms": [
+            "write failed",
+            "not acknowledged",
+            "write concern error"
+          ]
+        },
+        {
+          "key": "MONGO_UNKNOWN_ERROR",
+          "severity": "HIGH",
+          "description": "Unknown Mongo error",
+          "userSynonyms": [
+            "db error",
+            "unknown mongo error"
+          ]
+        },
+        {
+          "key": "INVALID_PAYLOAD",
+          "severity": "MEDIUM",
+          "description": "Invalid payload",
+          "userSynonyms": [
+            "bad payload",
+            "invalid body",
+            "malformed data"
+          ]
+        },
+        {
+          "key": "MISSING_HEADER",
+          "severity": "MEDIUM",
+          "description": "Missing header",
+          "userSynonyms": [
+            "header missing",
+            "no header",
+            "required header absent"
+          ]
+        },
+        {
+          "key": "INVALID_HEADER",
+          "severity": "MEDIUM",
+          "description": "Invalid header",
+          "userSynonyms": [
+            "bad header",
+            "wrong header"
+          ]
+        },
+        {
+          "key": "TENANT_NOT_ENABLED",
+          "severity": "MEDIUM",
+          "description": "Tenant not in enabled list",
+          "userSynonyms": [
+            "tenant disabled",
+            "org not enabled",
+            "not onboarded"
+          ]
+        },
+        {
+          "key": "ECHO_CONFIG_NOT_FOUND",
+          "severity": "HIGH",
+          "description": "Echo configuration missing",
+          "userSynonyms": [
+            "no echo config",
+            "dedup config missing",
+            "echo settings missing"
+          ]
+        },
+        {
+          "key": "POLICY_CONFIG_NOT_FOUND",
+          "severity": "HIGH",
+          "description": "Policy configuration missing",
+          "userSynonyms": [
+            "no policy config",
+            "rule config missing"
+          ]
+        },
+        {
+          "key": "INVALID_CONFIGURATION",
+          "severity": "HIGH",
+          "description": "Configuration validation failed",
+          "userSynonyms": [
+            "bad config",
+            "invalid settings",
+            "config error"
+          ]
+        },
+        {
+          "key": "OPERATION_TIMEOUT",
+          "severity": "MEDIUM",
+          "description": "Operation timeout",
+          "userSynonyms": [
+            "timed out",
+            "too slow",
+            "operation timeout"
+          ]
+        },
+        {
+          "key": "OPERATION_INTERRUPTED",
+          "severity": "MEDIUM",
+          "description": "Operation interrupted",
+          "userSynonyms": [
+            "interrupted",
+            "stopped midway"
+          ]
+        },
+        {
+          "key": "OPERATION_EXECUTION_FAILED",
+          "severity": "MEDIUM",
+          "description": "Operation execution failed",
+          "userSynonyms": [
+            "operation failed",
+            "couldn't complete",
+            "execution error"
+          ]
+        },
+        {
+          "key": "UNKNOWN_ERROR",
+          "severity": "MEDIUM",
+          "description": "Unknown error",
+          "userSynonyms": [
+            "unknown error",
+            "something went wrong",
+            "unexpected"
+          ]
+        }
+      ],
+      "customExceptions": [
+        {
+          "class": "KafkaPublishException",
+          "userSynonyms": [
+            "publish failed",
+            "couldn't send to kafka",
+            "emit failed"
+          ]
+        },
+        {
+          "class": "AuditPublishException",
+          "userSynonyms": [
+            "audit publish failed",
+            "couldn't send audit event"
+          ]
+        },
+        {
+          "class": "EchoConfigNotFoundException",
+          "userSynonyms": [
+            "no echo config",
+            "dedup config missing"
+          ]
+        },
+        {
+          "class": "InvalidEchoConfigException",
+          "userSynonyms": [
+            "bad echo config",
+            "invalid dedup settings"
+          ]
+        },
+        {
+          "class": "InvalidHeaderException",
+          "userSynonyms": [
+            "bad header",
+            "wrong header"
+          ]
+        },
+        {
+          "class": "InvalidPayloadException",
+          "userSynonyms": [
+            "bad payload",
+            "invalid body"
+          ]
+        },
+        {
+          "class": "MissingHeaderException",
+          "userSynonyms": [
+            "header missing",
+            "required header absent"
+          ]
+        },
+        {
+          "class": "NonRetryableEventException",
+          "userSynonyms": [
+            "permanent failure",
+            "unrecoverable"
+          ]
+        },
+        {
+          "class": "TenantNotEnabledException",
+          "userSynonyms": [
+            "tenant disabled",
+            "org not enabled"
+          ]
+        },
+        {
+          "class": "CloneCollectionException",
+          "userSynonyms": [
+            "bootstrap failed",
+            "config copy failed"
+          ]
+        }
+      ]
+    }
+  },
+  "retryDltConventions": {
+    "description": "How failed events are re-published across services; a user saying 'stuck', 'retrying', or 'dead-lettered' maps here.",
+    "topicSuffixes": [
+      "-retry-0",
+      "-retry-1",
+      "-retry-2",
+      "-dlt",
+      "-conduct-ingestion-retry-{0,1}",
+      "-conduct-ingestion-dlt",
+      "-ec-indexer-retry-{0,1}",
+      "-ec-indexer-dlt",
+      "-ec-reporting-retry-{0,1}",
+      "-ec-reporting-dlt"
+    ],
+    "terms": {
+      "retry": {
+        "userSynonyms": [
+          "retrying",
+          "try again",
+          "re-attempt",
+          "reprocessing"
+        ]
+      },
+      "dlt": {
+        "expansion": "dead letter topic",
+        "userSynonyms": [
+          "dead letter",
+          "failed queue",
+          "poison queue",
+          "gave up",
+          "errored out"
+        ]
+      },
+      "NonRetryableEventException": {
+        "userSynonyms": [
+          "permanent failure",
+          "won't retry",
+          "straight to DLT"
+        ]
+      }
+    }
+  }
+}

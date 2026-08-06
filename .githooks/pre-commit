@@ -12,4 +12,29 @@
 # single commit with `git commit --no-verify`.
 set -e
 
-python3 "$(dirname "$0")/../scripts/check_testing_log.py"
+DIR="$(dirname "$0")"
+SCRIPT="$DIR/../scripts/check_testing_log.py"
+
+# Find an interpreter that actually RUNS. `python3` and `python` cannot be
+# assumed: on Windows both usually resolve to the Microsoft Store alias stub,
+# which is on PATH and satisfies `command -v` but exits non-zero without
+# executing anything. So each candidate is probed with a no-op program, and the
+# repo's own venv is tried first — the check is stdlib-only, but a venv
+# interpreter is the one certain to exist wherever the suite has been run.
+for candidate in \
+    "$DIR/../.venv/Scripts/python.exe" \
+    "$DIR/../.venv/bin/python" \
+    python3 python py
+do
+    if "$candidate" -c "" >/dev/null 2>&1; then
+        exec "$candidate" "$SCRIPT"
+    fi
+done
+
+# Fail closed, like the relevance guard: a skipped check is indistinguishable
+# from a passed one, and this hook exists precisely so a tests/ change cannot
+# land without its TESTING.md entry.
+echo "pre-commit: no working Python interpreter found (tried the venv, python3, python, py)." >&2
+echo "            The TESTING.md guard could not run, so this commit is blocked." >&2
+echo "            Install Python or bypass deliberately with: git commit --no-verify" >&2
+exit 1

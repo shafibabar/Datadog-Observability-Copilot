@@ -360,6 +360,27 @@ def test_build_copilot_uses_cli_backend_when_keyless_and_cli_present(monkeypatch
     assert isinstance(cp._engine._llm, ClaudeCliClient)
 
 
+def test_build_copilot_teaches_the_guard_the_ec_vocabulary(monkeypatch):
+    """A question about "the sampler" or "the gateway board" is on-topic even
+    though neither phrase appears in the guard's own keyword list."""
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
+    cp = build_copilot(Settings(), cli_available=lambda: True)
+
+    vocabulary = cp._guard_extra_vocabulary
+    assert "quota manager" in vocabulary
+    assert "gateway board" in vocabulary
+
+
+def test_build_copilot_wires_knowledge_into_the_engine(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_WORKSPACE_DB", ":memory:")
+    cp = build_copilot(Settings(), cli_available=lambda: True)
+
+    assert not cp._engine._vocabulary.is_empty
+    assert not cp._engine._knowledge.is_empty
+
+
 def test_build_copilot_sdk_backend_requires_key(monkeypatch):
     # Explicitly asking for the SDK backend with no key degrades gracefully.
     _clear(monkeypatch)
