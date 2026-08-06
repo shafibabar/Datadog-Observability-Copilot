@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Observability Copilot — from dashboards to guided investigations</title>
+<!-- Deck B: PRODUCT-LED. The capability leads; the build journey closes.
+     Companion deck: meta-led.html -->
+<link rel="stylesheet" href="deck.css">
+</head>
+<body>
+<div id="bar"></div>
+<div id="deckname">Product-led · 16 slides</div>
+<div id="hud"></div>
+
+<!-- 1 ................................................................. -->
+<section class="slide on" data-notes="
+  <p>Lead with the capability. Say what it is in one sentence, then get to the demo quickly — this deck
+  earns the right to talk about method by first proving the thing works.</p>
+  <p>Be precise about what it is NOT: not a chatbot bolted onto a dashboard, and not a dashboard
+  replacement. The dashboard stays the source of truth; this interprets over it.</p>">
+  <p class="kicker">Internal showcase</p>
+  <h1>Observability Copilot</h1>
+  <p class="lead">A reasoning layer over our telemetry that turns a dashboard into a guided,
+  evidence-backed investigation — running live against our own Datadog org.</p>
+  <div class="note"><p><strong>Not a chatbot. Not a dashboard replacement.</strong> The dashboard stays
+  the source of truth; this explains what it means.</p></div>
+</section>
+
+<!-- 2 ................................................................. -->
+<section class="slide" data-notes="
+  <p>Everyone has lived this, so keep it to a minute. Make it about the newcomer, not about tooling
+  being bad — the tooling is fine.</p>
+  <p>The real cost is that interpretation lives in a few people's heads, which makes it a bottleneck
+  and a single point of failure at 3am.</p>">
+  <p class="kicker">The problem</p>
+  <h2>The data is all there. The understanding isn't.</h2>
+  <ul class="clean">
+    <li>Open a dashboard for a service you don't own. Dozens of panels, every one technically correct.</li>
+    <li>You can't tell what's <strong>normal</strong>, what <strong>changed</strong>, or what
+    <strong>matters right now</strong>.</li>
+    <li>So you find someone who's seen it before. That person is the bottleneck — and they're asleep.</li>
+  </ul>
+  <div class="warn"><p>The gap isn't data collection. It's <strong>interpretation</strong> — and it
+  currently lives in a handful of heads.</p></div>
+</section>
+
+<!-- 3 ................................................................. -->
+<section class="slide" data-notes="
+  <p>These four constraints shaped every feature. Read them out — they are the product's spine and they
+  explain the demo you're about to give.</p>
+  <p>The fourth one is the one that makes it trustworthy and the one competitors get wrong. An AI that
+  presents a guess as a fact is worse than no AI in an incident.</p>">
+  <p class="kicker">The design constraints</p>
+  <h2>Four rules it must never break</h2>
+  <ul class="clean">
+    <li><strong>Explain metrics, don't expose them.</strong> Answer the question, don't render another graph.</li>
+    <li class="alt"><strong>Tell the story.</strong> An ordered narrative of what happened, not a wall of panels.</li>
+    <li><strong>Every conclusion carries its evidence.</strong> &ldquo;Show me why&rdquo; is always available.</li>
+    <li class="alt"><strong>Facts, hypotheses, recommendations and unknowns stay separate.</strong>
+    Confidence must trace to evidence — never speculation dressed as certainty.</li>
+  </ul>
+</section>
+
+<!-- 4 ................................................................. -->
+<section class="slide" data-notes="
+  <p>LIVE DEMO part 1 — health summary. ~2 min.</p>
+  <p>Have it running on port 8000 with a fresh conversation. Ask: 'Is the alerting service healthy?
+  Any errors or latency issues?'</p>
+  <p>While it works, explain what's happening underneath: it's querying our real org right now, 420
+  metrics are in scope, and a deterministic resolver has narrowed that to the 8 most relevant to this
+  question — so it's one focused set of queries, not 420.</p>
+  <p>When it answers, read the Facts section aloud, then stop on the Unknowns. It will typically decline
+  something for lack of evidence. Name that out loud — it is the design goal, not a shortcoming.</p>">
+  <span class="demo-tag">Live demo 1 · health summary</span>
+  <h2>&ldquo;Is the alerting service healthy?&rdquo;</h2>
+  <ul class="clean">
+    <li>Plain English, about a service nobody in this room wrote.</li>
+    <li>It answers with <strong>facts</strong> first, then what it <em>infers</em>, then what it
+    <strong>cannot</strong> tell from the available data.</li>
+    <li>Live queries against our Datadog org — 420 metrics in scope, narrowed to the 8 that matter here.</li>
+  </ul>
+  <div class="demo"><p><strong>Watch for the refusal.</strong> When the evidence doesn't support a
+  conclusion, it says so instead of guessing.</p></div>
+</section>
+
+<!-- 5 ................................................................. -->
+<section class="slide" data-notes="
+  <p>LIVE DEMO part 2 — evidence and timeline. ~2 min.</p>
+  <p>Click into the evidence for a specific claim. Show that each one points at a real metric series with
+  a baseline, a peak and a latest value, or at a real event with a timestamp.</p>
+  <p>Then show the Workspace panel on the right: this is a living document, not chat scrollback. It has
+  Current Health, Timeline, Evidence, Hypotheses with for/against, Recommended Next Steps and Outstanding
+  Questions. Every follow-up question updates it rather than appending to a transcript.</p>
+  <p>The architectural point worth making: conclusions are versioned, so you can see how confidence
+  changed as evidence arrived.</p>">
+  <span class="demo-tag">Live demo 2 · show me the evidence</span>
+  <h2>Every claim traces back to real telemetry</h2>
+  <ul class="clean">
+    <li>Each fact cites specific metric series or timestamped events — with baseline, peak and latest values.</li>
+    <li>Root-cause hypotheses carry <strong>supporting and contradicting</strong> evidence, plus what
+    information is missing.</li>
+    <li>The panel on the right is a <strong>living investigation document</strong>, not chat history —
+    versioned, so you can see how confidence changed as evidence arrived.</li>
+  </ul>
+</section>
+
+<!-- 6 ................................................................. -->
+<section class="slide" data-notes="
+  <p>LIVE DEMO part 3 — personas and artifact. ~2 min. This is the crowd-pleaser.</p>
+  <p>Switch the persona dropdown from Site Reliability Engineer to Engineering Leadership. The answer
+  re-frames instantly — and make this explicit: that took NO new model call. The facts are structured
+  data; the persona is just a rendering lens over them.</p>
+  <p>That's why it's instant, free, and can never contradict the technical version — which matters, because
+  the classic failure is the exec summary quietly disagreeing with the engineering detail.</p>
+  <p>Then generate the Incident Summary artifact. Same underlying state, serialized as a document you
+  could paste into a ticket.</p>">
+  <span class="demo-tag">Live demo 3 · same facts, five lenses</span>
+  <h2>One investigation, rendered for whoever's asking</h2>
+  <div class="cols">
+    <div>
+      <ul class="clean">
+        <li>Support Engineer</li>
+        <li class="alt">Site Reliability Engineer</li>
+        <li>Software Engineer</li>
+        <li class="alt">Product Manager</li>
+        <li>Engineering Leadership</li>
+      </ul>
+    </div>
+    <div class="stack">
+      <div class="note"><p><strong>Switching persona makes no model call.</strong> The facts are
+      structured data; the persona is a rendering lens. So it's instant, free — and the exec summary can
+      never quietly contradict the engineering detail.</p></div>
+      <p>Then export the same state as an <strong>Incident Summary</strong> ready to paste into a ticket.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 7 ................................................................. -->
+<section class="slide" data-notes="
+  <p>Now the 'how does it actually work' slide, pitched for a mixed room. Keep it to four boxes; don't
+  go deeper unless asked.</p>
+  <p>The important idea is replaceability: each layer sits behind an interface, so a different telemetry
+  backend or a different model doesn't mean a rewrite. That's what makes this a slice of a real product
+  rather than a demo.</p>">
+  <p class="kicker">How it works</p>
+  <h2>Four layers, each replaceable</h2>
+  <table class="t">
+    <tr><th>Layer</th><th>Job</th></tr>
+    <tr><td>Telemetry</td><td>One interface over metrics and events. Live Datadog, or a replayable
+    scripted incident — swapping backends changes nothing above</td></tr>
+    <tr><td>Reasoning</td><td>Produces structured objects: a claim, its category, a confidence, and
+    pointers to evidence. Cited evidence is validated, so it cannot invent support</td></tr>
+    <tr><td>Workspace</td><td>The centre of gravity. A persisted, versioned investigation — a living
+    document, not derived from chat</td></tr>
+    <tr><td>Presentation</td><td>Dashboard and copilot side by side. Headline → summary → evidence →
+    raw telemetry, on demand</td></tr>
+  </table>
+  <div class="note"><p>Personas, workspace sections and artifact types are all <strong>registry-driven</strong>
+  — adding one is config, not surgery.</p></div>
+</section>
+
+<!-- 8 ................................................................. -->
+<section class="slide" data-notes="
+  <p>This is the slide that separates it from 'we piped a dashboard into a chatbot'. Walk the pipeline
+  left to right.</p>
+  <p>The number to dwell on: 420 metrics are in scope, but any one question queries 8. That bound is
+  deliberate — it's what keeps it fast enough to be usable and cheap enough to run, and it's
+  deterministic, so the same question always looks at the same metrics.</p>
+  <p>The guard at the front is a cost control as much as a safety one: an off-topic question never reaches
+  the expensive path at all.</p>">
+  <p class="kicker">Why the answers are grounded</p>
+  <h2>What happens between your question and the answer</h2>
+  <table class="t">
+    <tr><td>1 · Guard</td><td>Off-topic or prompt-injection input is refused <em>before</em> any
+    expensive work — zero tokens spent</td></tr>
+    <tr><td>2 · Scope</td><td>Which environments, which tenants, what time window. Persisted per
+    conversation, changeable per question</td></tr>
+    <tr><td>3 · Resolve</td><td><strong>420 metrics in scope → the 8 most relevant to this question.</strong>
+    Deterministic, so it's explainable and repeatable</td></tr>
+    <tr><td>4 · Evidence</td><td>Query only those. Build a catalog of citable facts with real values</td></tr>
+    <tr><td>5 · Reason</td><td>The model must cite catalog IDs. Invented citations are stripped out</td></tr>
+  </table>
+</section>
+
+<!-- 9 ................................................................. -->
+<section class="slide" data-notes="
+  <p>Honest scope. Put it before the journey section so nobody feels oversold when you pivot to method.</p>
+  <p>Say plainly: this is a coherent working slice with clean seams, not a shippable product. If asked
+  'can we roll this out' — not as it stands, and that was never the goal of the exercise.</p>">
+  <p class="kicker">What this is and isn't</p>
+  <h2>An honest scope statement</h2>
+  <div class="cols">
+    <div>
+      <h3 style="color:var(--good);font-size:18px;margin:0 0 .3em">Real and working</h3>
+      <ul class="clean">
+        <li>Live read-only Datadog integration</li>
+        <li>Genuine reasoning — no hard-coded answers</li>
+        <li>Persisted, versioned investigation state</li>
+        <li>5 personas · evidence tracing · 1 artifact</li>
+        <li>388 tests, 98% coverage</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="color:var(--series-2);font-size:18px;margin:0 0 .3em">Deliberately not built</h3>
+      <ul class="clean">
+        <li class="alt">5 of 6 output artifact types</li>
+        <li class="alt">Logs and traces (metrics + events only)</li>
+        <li class="alt">Ticketing / paging integrations</li>
+        <li class="alt">Any multi-user or auth story</li>
+        <li class="alt">One UI flow still unverified in a real browser</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 10 ................................................................ -->
+<section class="slide" data-notes="
+  <p>THE PIVOT. Pause here. Change your tone — you're switching from what to how.</p>
+  <p>Say the 'I don't write code' line once, plainly, without drama, and move straight on to the numbers.
+  Do not repeat it later in the deck; the numbers make the point better than the claim does.</p>">
+  <p class="kicker">And now the part I actually want to talk about</p>
+  <h1>None of this was written by an engineer</h1>
+  <p class="lead">I directed it. I don't write or debug the code — I decided what to build, in what order,
+  and whether the result was acceptable.</p>
+  <div class="kpis">
+    <div class="kpi"><span class="n">7</span><span class="k">active build days</span></div>
+    <div class="kpi"><span class="n">64</span><span class="k">prompts recorded</span></div>
+    <div class="kpi"><span class="n"><small>$</small>207</span><span class="k">total model spend</span></div>
+    <div class="kpi"><span class="n">8</span><span class="k">dependencies</span></div>
+  </div>
+</section>
+
+<!-- 11 ................................................................ -->
+<section class="slide" data-notes="
+  <p>The chart is the evidence that this was directed work, not vibe coding. Over a third of the prompts
+  were planning before any code.</p>
+  <p>Two honesty notes: '7 active days' means days on which work happened, spread across about six weeks
+  of evenings. And the recorded count stops at Jul 28 — the most recent session isn't in the file yet.</p>
+  <p>Point at the tall bar, Jul 8. That was the day I ran it against real Datadog and discovered it was
+  answering from demo data. Almost entirely argument, and it produced the most important architectural
+  change in the project.</p>">
+  <p class="kicker">What the work looked like</p>
+  <h2>A third of it was deciding, not building</h2>
+  <div data-chart="intent-split"></div>
+  <div data-chart="prompts-per-day"></div>
+  <div class="warn"><p>Seven <em>active</em> days across six weeks of evenings — not seven full-time days.</p></div>
+</section>
+
+<!-- 12 ................................................................ -->
+<section class="slide" data-notes="
+  <p>Balance sheet slide: acceleration on the left, judgment on the right. Don't rush the right column —
+  it's what makes the left column believable.</p>
+  <p>The last item on the right is the sharpest one: it offered me a safe fallback for the demo and I
+  refused it. That refusal is the only reason the live integration works.</p>">
+  <p class="kicker">The honest balance</p>
+  <h2>What got cheap, and what didn't</h2>
+  <div class="cols">
+    <div>
+      <h3 style="color:var(--series-1);font-size:18px;margin:0 0 .3em">AI made these trivial</h3>
+      <ul class="clean">
+        <li>A working slice on day one</li>
+        <li>Dependency and environment fights</li>
+        <li>388 tests I'd never have written</li>
+        <li>Synthetic data for reliable demos</li>
+        <li>The reasoning prompts themselves</li>
+        <li>Its own documentation and build log</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="color:var(--series-2);font-size:18px;margin:0 0 .3em">Still needed me</h3>
+      <ul class="clean">
+        <li class="alt">&ldquo;Why is it giving scripted answers?&rdquo;</li>
+        <li class="alt">&ldquo;The UI is completely screwed up&rdquo; — twice</li>
+        <li class="alt">Setting scope and effort budget</li>
+        <li class="alt">&ldquo;I cannot do the demo with replay&rdquo;</li>
+        <li class="alt">Judging whether an answer was actually useful</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 13 ................................................................ -->
+<section class="slide" data-notes="
+  <p>The failure stories, compressed into one slide for this deck. They build credibility — don't skip
+  them to save time.</p>
+  <p>Story one: the code was correct both times; the browser was serving cached assets. Tests asserted the
+  markup existed, never that it worked.</p>
+  <p>Story two is the better one. 360 tests, all green, 98% coverage — and four defects the moment it hit
+  real data, because every one was an assumption about the world rather than a logic error.</p>
+  <p>Land the line at the bottom.</p>">
+  <p class="kicker">Where it went wrong</p>
+  <h2>Two failures worth showing you</h2>
+  <ul class="clean">
+    <li><strong>The UI broke twice, identically.</strong> Both times the code was correct — the browser
+    was running a cached stylesheet. Tests checked that the markup <em>existed</em>, never that it
+    <em>worked</em>. Fixed structurally: the layout now renders with zero JavaScript.</li>
+    <li class="alt"><strong>360 green tests missed four real defects.</strong> The first contact with the
+    real org found a tag that doesn't exist in our org, metrics that emit 40&ndash;150 points a
+    <em>week</em>, a safeguard that had silently stopped bounding queries, and a 1,000-row timeline.</li>
+  </ul>
+  <div class="warn"><p><strong>Tests prove the code does what you think. Only real data proves that what
+  you think is true.</strong></p></div>
+</section>
+
+<!-- 14 ................................................................ -->
+<section class="slide" data-notes="
+  <p>How I could approve work I can't read. This is the answer to the reasonable scepticism in the room.</p>
+  <p>Specs before implementation, and a rule that a passing test may never later fail. Point at the line:
+  it never goes down. That invariant is what substituted for my ability to review code.</p>
+  <p>Plus: 23 decisions and 20 build-log entries in version control, so a fresh session — or a colleague
+  — can pick it up without me.</p>">
+  <p class="kicker">Why I could trust work I can't read</p>
+  <h2>Test-first, once green always green</h2>
+  <div data-chart="suite-growth"></div>
+  <ul class="clean">
+    <li>Specs written <strong>before</strong> implementation, so they capture intent, not the code.</li>
+    <li>A previously passing test failing was a stop-work event. Coverage held at <strong>98%</strong>.</li>
+    <li><strong>23 decisions and 20 build-log entries</strong> in version control — the repo remembers,
+    so the chat doesn't have to.</li>
+  </ul>
+</section>
+
+<!-- 15 ................................................................ -->
+<section class="slide" data-notes="
+  <p>The takeaway. Frame it as advice earned by getting things wrong.</p>
+  <p>Then the closing line: the interesting shift isn't that AI writes code, it's where the hard part
+  moved to.</p>">
+  <p class="kicker">If you want to try this</p>
+  <h2>What actually made it work</h2>
+  <ul class="clean">
+    <li><strong>Make it plan before it builds</strong> — a third of my prompts, and the reason it stayed
+    on course.</li>
+    <li class="alt"><strong>Demand tests you don't have to read</strong> — that's how you approve what
+    you can't audit.</li>
+    <li><strong>Force decisions into version-controlled files</strong> — chat is disposable.</li>
+    <li class="alt"><strong>Point it at reality early</strong> — mocks only confirm what you already believe.</li>
+    <li><strong>Say no to the convenient shortcut</strong> — that's where most of the value came from.</li>
+  </ul>
+  <div class="note"><p><strong>The bottleneck moved from writing software to deciding what to build.</strong></p></div>
+</section>
+
+<!-- 16 ................................................................ -->
+<section class="slide" data-notes="
+  <p>Keep this up for Q&amp;A. Prepared answers:</p>
+  <p><strong>'Can we use this?'</strong> — Not as it stands; it's a slice, and slide 9 lists what's
+  missing. But the seams are clean, and the live Datadog integration is real.</p>
+  <p><strong>'How do you know the code is good?'</strong> — I don't, personally. 388 tests pass, coverage
+  is 98%, no passing test has ever been allowed to regress, and it works against live production data.</p>
+  <p><strong>'What about hallucination?'</strong> — Cited evidence is validated against the real catalog
+  and invented references are stripped. And it's built to say 'I can't tell from this data' — you saw
+  it do exactly that in the demo.</p>
+  <p><strong>'What did it cost?'</strong> — $207 of model usage, total.</p>
+  <p><strong>'Could I do this?'</strong> — Yes. The constraint is being specific about what you want,
+  not the ability to code.</p>">
+  <p class="kicker">Over to you</p>
+  <h1>Questions</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">420</span><span class="k">live metrics in scope</span></div>
+    <div class="kpi"><span class="n">8</span><span class="k">queried per question</span></div>
+    <div class="kpi"><span class="n">388</span><span class="k">tests passing</span></div>
+    <div class="kpi"><span class="n"><small>$</small>207</span><span class="k">total spend</span></div>
+  </div>
+  <p style="margin-top:1.6em">Happy to ask it anything live, or walk through the decision log
+  and the failure stories.</p>
+</section>
+
+<div id="notes"></div>
+<script src="charts.js"></script>
+<script src="deck.js"></script>
+</body>
+</html>

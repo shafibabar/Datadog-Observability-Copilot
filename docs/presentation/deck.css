@@ -1,0 +1,169 @@
+/* Presentation deck — shared styling for both decks.
+   No dependencies, no build step, no web fonts: the same constraints the product
+   itself was built under, so the deck can't fail for a reason the talk can't explain.
+   Colors are the validated dark-mode data-viz slots (see deck.js header). */
+
+:root {
+  color-scheme: dark;
+  --surface-1:      #1a1a19;   /* chart + slide surface (validator's dark surface) */
+  --surface-2:      #232322;
+  --surface-3:      #2c2c2a;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #8d8c83;
+  --series-1:       #3987e5;   /* categorical slot 1 — blue */
+  --series-2:       #d95926;   /* categorical slot 2 — orange */
+  --rule:           #3a3a37;
+  --good:           #199e70;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- slide frame ---------- */
+
+.slide {
+  display: none;
+  position: absolute; inset: 0;
+  padding: 4.5vh 6vw 8vh;
+  overflow: auto;
+  animation: in .18s ease-out;
+}
+.slide.on { display: block; }
+@keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.slide h1 {
+  font-size: clamp(30px, 4.4vw, 58px);
+  line-height: 1.12; margin: 0 0 .5em; letter-spacing: -.02em;
+}
+.slide h2 {
+  font-size: clamp(22px, 2.7vw, 36px);
+  line-height: 1.2; margin: 0 0 .15em; letter-spacing: -.015em;
+}
+.kicker {
+  font-size: clamp(11px, 1.05vw, 13px);
+  text-transform: uppercase; letter-spacing: .14em;
+  color: var(--text-muted); margin: 0 0 1.6em; font-weight: 600;
+}
+.slide p, .slide li { font-size: clamp(15px, 1.45vw, 20px); color: var(--text-secondary); }
+.slide strong { color: var(--text-primary); font-weight: 650; }
+.lead { font-size: clamp(18px, 1.9vw, 26px) !important; color: var(--text-primary); max-width: 46ch; }
+
+ul.clean { list-style: none; padding: 0; margin: 1.1em 0 0; }
+ul.clean > li {
+  padding: .5em 0 .5em 1.35em; position: relative;
+  border-bottom: 1px solid var(--rule);
+}
+ul.clean > li:last-child { border-bottom: 0; }
+ul.clean > li::before {
+  content: ""; position: absolute; left: 0; top: 1.05em;
+  width: 7px; height: 7px; border-radius: 2px; background: var(--series-1);
+}
+ul.clean > li.alt::before { background: var(--series-2); }
+
+/* ---------- layout helpers ---------- */
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3vw; align-items: start; }
+.cols.wide-left { grid-template-columns: 1.35fr 1fr; }
+.stack > * + * { margin-top: 1.1em; }
+
+/* ---------- stat tiles / hero numbers ---------- */
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-top: 1.4em; }
+.kpi { background: var(--surface-2); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; }
+.kpi .n {
+  display: block; font-size: clamp(28px, 3.4vw, 46px); font-weight: 700;
+  letter-spacing: -.03em; line-height: 1; color: var(--text-primary);
+}
+.kpi .n small { font-size: .45em; font-weight: 600; color: var(--text-muted); letter-spacing: 0; }
+.kpi .k { display: block; margin-top: .5em; font-size: 13px; color: var(--text-secondary); }
+.hero { font-size: clamp(56px, 9vw, 132px); font-weight: 700; letter-spacing: -.04em; line-height: .95; }
+
+/* ---------- callouts ---------- */
+
+.note, .warn, .demo {
+  border-left: 3px solid var(--series-1);
+  background: var(--surface-2); border-radius: 0 8px 8px 0;
+  padding: .85em 1.1em; margin-top: 1.3em;
+}
+.warn { border-left-color: var(--series-2); }
+.demo { border-left-color: var(--good); }
+.note p, .warn p, .demo p { margin: 0; }
+
+.demo-tag {
+  display: inline-block; background: var(--good); color: #04120c;
+  font-size: 12px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 4px; margin-bottom: .8em;
+}
+
+/* ---------- quotes (real words from the build log) ---------- */
+
+blockquote {
+  margin: 1.2em 0 0; padding: 0 0 0 1.1em;
+  border-left: 2px solid var(--series-2);
+  font-size: clamp(17px, 1.8vw, 24px); color: var(--text-primary);
+}
+blockquote cite { display: block; margin-top: .6em; font-size: 14px; font-style: normal; color: var(--text-muted); }
+
+/* ---------- tables ---------- */
+
+table.t { width: 100%; border-collapse: collapse; margin-top: 1.1em; font-size: clamp(13px, 1.25vw, 17px); }
+table.t th, table.t td { text-align: left; padding: .55em .7em; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.t th { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .09em; font-weight: 600; }
+table.t td { color: var(--text-secondary); }
+table.t td:first-child { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
+
+/* ---------- charts ---------- */
+
+figure.viz { margin: 1.2em 0 0; }
+figure.viz figcaption { font-size: 13px; color: var(--text-muted); margin-top: .6em; }
+.viz svg { display: block; width: 100%; height: auto; overflow: visible; }
+.viz text { font: 500 12px ui-sans-serif, system-ui, sans-serif; fill: var(--text-secondary); }
+.viz .val { font-weight: 700; fill: var(--text-primary); }
+.viz .ax { stroke: var(--rule); stroke-width: 1; }
+.legend { display: flex; gap: 18px; margin-top: .7em; font-size: 13px; color: var(--text-secondary); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* ---------- chrome ---------- */
+
+#bar { position: fixed; left: 0; top: 0; height: 2px; background: var(--series-1); z-index: 9; transition: width .18s; }
+#hud {
+  position: fixed; right: 14px; bottom: 10px; z-index: 9;
+  font-size: 12px; color: var(--text-muted); letter-spacing: .04em;
+}
+#hud b { color: var(--text-secondary); font-weight: 600; }
+#deckname {
+  position: fixed; left: 14px; bottom: 10px; z-index: 9;
+  font-size: 12px; color: var(--text-muted); letter-spacing: .04em;
+}
+
+/* ---------- speaker notes (press N) ---------- */
+
+#notes {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  max-height: 42vh; overflow: auto;
+  background: #100f0f; border-top: 2px solid var(--series-2);
+  padding: 16px 6vw 34px; display: none;
+}
+body.notes #notes { display: block; }
+#notes h3 { margin: 0 0 .5em; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--series-2); }
+#notes p, #notes li { font-size: 15px; color: var(--text-secondary); margin: 0 0 .5em; }
+
+/* ---------- print / PDF ---------- */
+
+@media print {
+  html, body { background: #fff; color: #000; height: auto; }
+  .slide { display: block !important; position: static; page-break-after: always;
+           min-height: 96vh; padding: 5vh 5vw; border-bottom: 1px solid #ccc; }
+  .slide h1, .slide h2, .slide strong, .kpi .n, .hero { color: #000; }
+  .slide p, .slide li, table.t td { color: #222; }
+  .kpi { border-color: #bbb; background: #f6f6f6; }
+  #bar, #hud, #deckname, #notes { display: none !important; }
+}
