@@ -519,6 +519,84 @@ def test_merge_returns_none_when_the_filter_empties_the_registry():
         {"system.cpu.user": "avg:system.cpu.user{*}"}, None, namespaces=("ec.*",)) == {}
 
 
+# --- the built-in registry as a merge source --------------------------------------
+# The committed name list (app/telemetry/data/ec_metric_names.txt) is a snapshot of
+# what the org emits, so the registry no longer depends on a live discovery call
+# succeeding — the failure that emptied it once was a TLS-inspection proxy.
+
+def test_builtin_names_populate_the_registry_when_discovery_returns_nothing():
+    merged = merged_metric_queries(
+        None, None, discovered={},
+        builtin={"ec.a": "sum:ec.a{*}.as_count()"}, namespaces=("ec.*",))
+    assert merged == {"ec.a": "sum:ec.a{*}.as_count()"}
+
+
+def test_builtin_beats_discovered_because_it_carries_a_real_aggregation():
+    merged = merged_metric_queries(
+        None, None,
+        discovered={"ec.a": "avg:ec.a{*}"},
+        builtin={"ec.a": "sum:ec.a{*}.as_count()"},
+        namespaces=("ec.*",),
+    )
+    assert merged == {"ec.a": "sum:ec.a{*}.as_count()"}
+
+
+def test_extracted_and_configured_still_outrank_the_builtin_registry():
+    merged = merged_metric_queries(
+        {"ec.a": "sum:ec.a{*}", "ec.b": "sum:ec.b{*}"},
+        {"ec.a": "avg:ec.a{env:prod}"},
+        builtin={"ec.a": "x:ec.a{*}", "ec.b": "y:ec.b{*}", "ec.c": "z:ec.c{*}"},
+        namespaces=("ec.*",),
+    )
+    assert merged == {
+        "ec.a": "avg:ec.a{env:prod}",
+        "ec.b": "sum:ec.b{*}",
+        "ec.c": "z:ec.c{*}",
+    }
+
+
+def test_builtin_names_confirm_an_extracted_metric_when_discovery_is_down():
+    # The confirmed-reporting rule needs a list of what exists. Discovery is one
+    # source of that list; the committed snapshot is another, and either one
+    # suffices — otherwise a discovery outage would readmit the 137 known-dead
+    # Terraform metrics.
+    merged = merged_metric_queries(
+        {"ec.live": "sum:ec.live{*}", "ec.dead": "sum:ec.dead{*}"},
+        None,
+        discovered={},
+        builtin={"ec.live": "avg:ec.live{*}"},
+        namespaces=("ec.*",),
+    )
+    assert set(merged) == {"ec.live"}
+
+
+def test_a_real_count_metric_survives_the_merge_when_the_builtin_list_proves_it():
+    # End-to-end of the funnel-counter fix: `…conduct.ingested.count` has no
+    # `…conduct.ingested` base, so it is a metric, not a generated sub-metric.
+    ingested = "ec.centralised_audit.conduct.ingested.count"
+    latency = "ec.svc.enrichment_latency"
+    merged = merged_metric_queries(
+        None, None,
+        discovered={
+            ingested: f"avg:{ingested}{{*}}",
+            latency: f"avg:{latency}{{*}}",
+            f"{latency}.count": f"avg:{latency}.count{{*}}",
+        },
+        builtin={ingested: f"sum:{ingested}{{*}}.as_count()", latency: f"avg:{latency}{{*}}"},
+        known=(ingested, latency, f"{latency}.count"),
+        namespaces=("ec.*",),
+    )
+    assert set(merged) == {ingested, latency}
+    assert merged[ingested] == f"sum:{ingested}{{*}}.as_count()"
+
+
+def test_omitting_the_builtin_registry_changes_nothing():
+    # Every existing caller and test passes no builtin; behaviour must be identical.
+    extracted = {"ec.a": "sum:ec.a{*}"}
+    assert merged_metric_queries(extracted, None, namespaces=("ec.*",)) == extracted
+    assert merged_metric_queries(None, None) is None
+
+
 # --- timeline bounding ------------------------------------------------------------
 # A live org returns ~1000 monitor events an hour (measured 2026-08-05), which made
 # the workspace's "Timeline of Events" section a 1000-row list on every reply.

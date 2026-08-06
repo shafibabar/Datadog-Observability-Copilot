@@ -61,6 +61,7 @@ class Copilot:
         guard_mode: str = "hybrid",
         guard_max_chars: int = 2000,
         classifier=None,
+        recognizer=None,
         guard_extra_vocabulary: tuple[str, ...] = (),
         default_environments: tuple[str, ...] = (),
         default_tenants: tuple[str, ...] = (),
@@ -74,6 +75,7 @@ class Copilot:
         self._guard_mode = guard_mode
         self._guard_max_chars = guard_max_chars
         self._classifier = classifier
+        self._recognizer = recognizer
         self._guard_extra_vocabulary = tuple(guard_extra_vocabulary)
         self._default_environments = tuple(default_environments)
         self._default_tenants = tuple(default_tenants)
@@ -137,6 +139,7 @@ class Copilot:
                 max_chars=self._guard_max_chars,
                 classifier=self._classifier,
                 extra_vocabulary=self._guard_extra_vocabulary,
+                recognizer=self._recognizer,
             )
             if not verdict.allowed:
                 return self._blocked_view(cid, persona, verdict)
@@ -265,6 +268,12 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     gracefully without crashing. `cli_available` is injectable for tests."""
     from app.guard_classifier import classify_relevance
     from app.knowledge.loader import load_knowledge
+    from app.knowledge.questions import guard_phrases as catalog_guard_phrases
+    from app.knowledge.questions import (
+        load_question_catalog,
+        match_question,
+        match_unanswerable,
+    )
     from app.knowledge.vocabulary import build_vocabulary
     from app.monitors.index import build_monitors_index, service_vocabulary
     from app.reasoning.llm import cli_available as _detect_cli
@@ -282,7 +291,12 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
     monitors_index = build_monitors_index(
         settings.monitors_repo_path, namespaces=settings.datadog_metric_namespaces)
 
-    source = _build_source(settings, monitors_index.metric_queries)
+    # The answerable-question catalog, built before the source so the queries it
+    # states (a counter summed `.as_count()`, a latency at p95) reach the adapter
+    # registry rather than being flattened to a generic `avg:`.
+    catalog = load_question_catalog()
+
+    source = _build_source(settings, monitors_index.metric_queries, catalog=catalog)
     if backend == "sdk":
         from app.reasoning.llm import AnthropicClient
 
@@ -304,7 +318,7 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
 
     engine = ReasoningEngine(
         source, llm, monitors_index=monitors_index,
-        vocabulary=vocabulary, knowledge=knowledge,
+        vocabulary=vocabulary, knowledge=knowledge, catalog=catalog,
     )
     store = WorkspaceStore(settings.workspace_db)
     # On-topic vocabulary, from three sources: the hand-listed COPILOT_PLATFORM_*
@@ -319,12 +333,24 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
         + settings.platform_environments
         + service_vocabulary(source.list_metrics())
         + vocabulary.guard_phrases()
+        + catalog_guard_phrases(catalog)
     )
 
     # Stage-2 guard classifier: semantic relevance via the fast model. Errors
     # propagate into guard.evaluate, which fails closed by design.
     def classifier(msg: str) -> bool:
         return classify_relevance(msg, llm)
+
+    # Stage-1 fast-allow: a message that resolves to a curated question is
+    # on-topic by construction, at zero token cost. Questions we recognise but
+    # cannot measure count too — "this platform emits no such metric" is an
+    # answer worth reaching, and refusing it looks identical to refusing an
+    # off-topic request.
+    available = set(source.list_metrics())
+
+    def recognizer(msg: str) -> bool:
+        return (match_question(msg, catalog, available) is not None
+                or match_unanswerable(msg, catalog, available) is not None)
 
     return Copilot(
         source, engine, store,
@@ -337,6 +363,7 @@ def build_copilot(settings, cli_available=None) -> Copilot | None:
         default_tenants=settings.platform_tenants,
         default_window_days=settings.platform_default_window_days,
         classifier=classifier,
+        recognizer=recognizer,
     )
 
 
@@ -345,22 +372,41 @@ def merged_metric_queries(
     configured: dict[str, str] | None,
     discovered: dict[str, str] | None = None,
     namespaces: tuple[str, ...] = (),
+    builtin: dict[str, str] | None = None,
+    catalog: dict[str, str] | None = None,
+    known: tuple[str, ...] = (),
 ) -> dict[str, str] | None:
     """Combine every source of metric queries into the adapter's registry.
 
-    Precedence **configured > extracted > discovered**: an explicit
-    DATADOG_METRIC_QUERIES entry always wins; a Terraform-extracted query beats a
-    live-discovered one because it carries the real aggregation (`sum:` /
-    `.as_count()`) rather than a generic default.
+    Precedence **configured > extracted > catalog > builtin > discovered**: an
+    explicit DATADOG_METRIC_QUERIES entry always wins; a Terraform-extracted
+    query beats the rest because it carries the aggregation a real monitor uses;
+    a question-catalog query carries the aggregation a human wrote for that
+    series; the committed built-in registry infers one from the metric's name;
+    and live discovery knows only a generic `avg:`.
 
-    **Extracted metrics must be confirmed reporting.** When discovery returned
-    anything at all, a metric found in the Terraform repo but absent from the live
-    list is dropped: the `.tf` files describe monitors that may reference metrics
-    no longer emitted (verified live 2026-08-05 — one such metric returned zero
-    series and zero tags), and a metric that cannot return data has no business
-    being selectable as evidence. When discovery returned nothing (it failed, or
-    isn't configured) the full extracted set survives — that's the graceful
-    degradation path, not a reason to empty the registry.
+    Getting this order right is what makes a counter answer a counting question:
+    `avg:…conduct.ingested.count` is a per-interval mean, not "how many were
+    ingested today".
+
+    `builtin` is the committed snapshot of the metric names this org emits
+    (app/telemetry/builtin.py). It makes the registry independent of a live
+    discovery call succeeding — the one that failed silently behind a corporate
+    TLS proxy and left the copilot with nothing to query.
+
+    `known` is the widest set of names known to exist, used to tell a
+    Datadog-generated `X.count` from a real metric that simply ends in `.count`
+    (EC's entire surveillance funnel does). See `namespaces.is_stat_submetric`.
+
+    **Extracted metrics must be confirmed reporting.** When we have any list of
+    what exists — from discovery or from the built-in snapshot — a metric found in
+    the Terraform repo but absent from it is dropped: the `.tf` files describe
+    monitors that may reference metrics no longer emitted (verified live
+    2026-08-05 — one such metric returned zero series and zero tags; 137 of 320
+    extracted names are dead), and a metric that cannot return data has no
+    business being selectable as evidence. With no such list at all the full
+    extracted set survives — that's the graceful degradation path, not a reason
+    to empty the registry.
 
     The result is then narrowed to `namespaces` (DATADOG_METRIC_NAMESPACES) — an
     allowlist, so nothing outside the configured scope can be queried — except
@@ -372,16 +418,62 @@ def merged_metric_queries(
     silently reintroduce `system.*`.
     """
     discovered = dict(discovered or {})
+    builtin = dict(builtin or {})
     extracted = dict(extracted or {})
-    if discovered:
-        extracted = {n: q for n, q in extracted.items() if n in discovered}
-    merged = {**discovered, **extracted, **(configured or {})}
+    catalog = dict(catalog or {})
+    reporting = set(discovered) | set(builtin)
+    if reporting:
+        # The catalog is a hint layer: it names series this org does not emit,
+        # and one of those must never enter the registry where the resolver
+        # could select it and hang a conclusion off a query that cannot run.
+        extracted = {n: q for n, q in extracted.items() if n in reporting}
+        catalog = {n: q for n, q in catalog.items() if n in reporting}
+    merged = {**discovered, **builtin, **catalog, **extracted, **(configured or {})}
     if namespaces:
-        return filter_queries(merged, parse_patterns(namespaces), keep=(configured or {}))
+        return filter_queries(
+            merged, parse_patterns(namespaces),
+            keep=(configured or {}), known=set(known) | reporting,
+        )
     return merged or None
 
 
-def _build_source(settings, extracted_metric_queries: dict[str, str] | None = None) -> DataSource:
+def _builtin_registry() -> tuple[dict[str, str], tuple[str, ...]]:
+    """The committed EC registry and the full name universe behind it.
+
+    A seam of its own so a spec that asserts an exact registry can silence it and
+    isolate whatever else it is testing.
+    """
+    from app.telemetry.builtin import BUILTIN_METRIC_NAMES, builtin_queries
+
+    return builtin_queries(), BUILTIN_METRIC_NAMES
+
+
+def catalog_metric_queries(catalog) -> dict[str, str]:
+    """Every metric the question catalog names, with the aggregation it states.
+
+    Each series is normalized to a single, scope-rewritable query (see
+    `questions.query_for`). Later entries do not overwrite earlier ones: the
+    catalog is ordered by intent, and the first statement of a series' shape is
+    the one written closest to the question it answers.
+    """
+    queries: dict[str, str] = {}
+    for entry in catalog or ():
+        for metric in entry.metrics:
+            queries.setdefault(metric, _question_query(metric, entry.resolved_query))
+    return queries
+
+
+def _question_query(metric: str, resolved: str) -> str:
+    from app.knowledge.questions import query_for
+
+    return query_for(metric, resolved)
+
+
+def _build_source(
+    settings,
+    extracted_metric_queries: dict[str, str] | None = None,
+    catalog=(),
+) -> DataSource:
     if settings.data_source == "datadog" and settings.has_datadog:
         from app.telemetry.datadog import (
             LiveDatadogAdapter,
@@ -398,9 +490,11 @@ def _build_source(settings, extracted_metric_queries: dict[str, str] | None = No
         }
         # Ask the org which metrics under the configured namespaces are actually
         # reporting. Best-effort: a failure here yields {} and the registry falls
-        # back to whatever Terraform gave us.
+        # back to the committed built-in snapshot plus whatever Terraform gave us,
+        # so a discovery outage no longer means a copilot with nothing to query.
         namespaces = settings.datadog_metric_namespaces
         discovered = discovered_queries(discover_metric_names(namespaces, **credentials))
+        builtin, known = _builtin_registry()
         return LiveDatadogAdapter(
             tenant_tag=settings.datadog_tenant_tag,
             env_tag=settings.datadog_env_tag,
@@ -409,6 +503,9 @@ def _build_source(settings, extracted_metric_queries: dict[str, str] | None = No
                 settings.datadog_metric_queries,
                 discovered=discovered,
                 namespaces=namespaces,
+                builtin=builtin,
+                catalog=catalog_metric_queries(catalog),
+                known=known,
             ),
             **credentials,
         )

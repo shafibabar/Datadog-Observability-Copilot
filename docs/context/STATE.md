@@ -2,6 +2,27 @@
 
 _Last updated: 2026-08-06_
 
+## Session 2026-08-06 (later) — Iteration 5: hardcoded metric registry + question catalog (579 passing, 1 skipped, 97% cov)
+
+**User-reported:** "the other efforts did not work as expected." Two more files supplied — `MetricsNames` (633 names read off the live org) and `Questions` (36 NL questions with intent + exact `resolvedQuery` + answer shape) — with the instruction to **hardcode the metrics, not configure them**, so the copilot queries them directly and Claude interprets them to answer those questions.
+
+**Cross-checking the two files was the design input, and it found the likely root cause.**
+- **The funnel counters were being deleted.** `is_stat_submetric` treated every `.count` suffix as a Datadog-generated sibling, silently dropping **all 36 `ec.centralised_audit.conduct.*.count`** business-volume counters — exactly what most of the supplied questions ask for. Fixed exactly, not heuristically: Datadog emits `X.count` only *alongside* base metric `X`, so a suffixed name whose base is **absent** is a real metric. Against the real list: 36 kept, all 408 generated dropped.
+- **Only 17 of 36 questions cite metrics that exist.** The rest name `_error_counter` / `_dlt_counter` / `_api_latency` series this org does not emit — consistent with the file's own "medium"/"not source-read" confidences.
+
+**Built (TDD, +93 specs):**
+- **`app/telemetry/builtin.py` + `data/ec_metric_names.txt`** — the 633 names ship in the repo; **225 queryable signals with no discovery call and nothing in `.env`**. Authority-grade, so deliberately *not* under `app/knowledge/`. Contributed to `merged_metric_queries` as a new source: **configured > extracted > catalog > builtin > discovered**. Also serves as the "what exists" list for the confirmed-reporting rule, so a discovery outage can no longer readmit the 137 known-dead Terraform metrics.
+- **Aggregation derived from name shape** (`_rate` → `sum:…as_rate()`, `.count`/`_counter` → `sum:…as_count()`, else `avg:`). `avg:` on a counter answers a question nobody asked.
+- **`app/knowledge/questions.py` + `data/questions.json`** — the catalog, committed verbatim. Parses `resolvedQuery` (including the prose form "… all under ec.centralised_audit"), normalizes each metric to one scope-rewritable query (keeps aggregation and `.as_count()`; **resets scope to `{*}` and strips `by {…}`**, because the adapter rewrites the first brace block and reads `series[0]` — a grouped query answers for one arbitrary tenant while looking platform-wide), and splits cited metrics into live vs not-emitted.
+- **Wired additively into four seams**, each with an explicit "omitting it is byte-for-byte the previous behaviour" spec: the resolver (`CATALOG_WEIGHT` 30 > knowledge 12 > alias 10 — a *recorded* answer beats an inference), the engine prompt (`RESOLVED QUESTION` block: entry, intent, exact queries, answer shape, and any not-emitted series), the adapter registry, and the guard.
+- **Substitution is the failure mode designed against.** A first cut sent 9 questions to a *different* entry ("how slow is the alert-fetch API?" → the surveillance filter, because both say "slow" and "fetch"). Two gates fixed it: a hard **intent-family** gate, and recall measured on the **asked side** (entry-side coverage rewards short entries). Correct matches score ≥0.68, substitutions ≤0.32 → threshold 0.5. Pinned by `test_every_catalog_question_matches_itself_or_nothing`.
+- **`match_unanswerable`** — for a recognized question whose series are all dead, the prompt gets an `UNANSWERABLE QUESTION` block naming what would be needed and forbidding substitution. It carries **no query**, so nothing uncitable can be cited.
+- **Guard `recognizer`** (new zero-token Stage-1 fast-allow) — a message resolving to a curated question is on-topic by construction. Consulted **after** the injection check; never blocks; a raising recognizer degrades. Stage-1 refusals over the supplied set: **7 → 2** (both fall through to the Stage-2 classifier as designed). Feeding catalog phrases into `extra_vocabulary` was tried first and fixed only 1 — that path is a plain substring match, so "supervised item update" misses "supervised-item update".
+
+**Measured outcome over the 36 supplied questions: 18 answered from real series, 12 recognized and explained as unmeasured, 6 unrecognized (normal resolution), 0 wrong-entry substitutions.**
+
+**Not yet done:** still verified **offline against a faked LLM** — not yet run against the live org or a real model. The browser checks (`@` menu, `renderMarkdown`) remain outstanding from earlier sessions.
+
 ## Session 2026-08-06 — Iteration 4: concrete answers + EC vocabulary (486 passing, 1 skipped, 97% cov)
 
 **User-reported problems:** (1) replies were verbose and story-like instead of giving concrete metrics, numbers, and the source each conclusion came from; (2) Claude did not understand the everyday words a non-technical user types. The user supplied five curated EC knowledge JSONs to fix (2).

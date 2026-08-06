@@ -165,3 +165,52 @@ def test_sub_metrics_are_untouched_when_no_namespaces_are_configured():
     # Unset config still means "change nothing" — the whole contract of blank.
     registry = {"ec.svc.latency.count": "avg:ec.svc.latency.count{*}"}
     assert filter_queries(registry, ()) == registry
+
+
+# --- a real `.count` metric vs a generated one -------------------------------
+# The suffix alone cannot tell them apart. EC's business-volume counters are
+# genuinely named `…conduct.ingested.count` — 36 of them, the whole surveillance
+# funnel — and the suffix rule was deleting every one. Given the full set of
+# names the org emits, the distinction is exact: Datadog generates `X.count`
+# only alongside the base metric `X`, so a suffixed name whose base is ABSENT is
+# a real metric in its own right.
+
+
+def test_a_suffixed_name_is_generated_only_when_its_base_also_exists():
+    known = {
+        "ec.alerting_service.enrichment_latency",
+        "ec.alerting_service.enrichment_latency.count",
+        "ec.centralised_audit.conduct.ingested.count",
+    }
+    assert is_stat_submetric("ec.alerting_service.enrichment_latency.count", known)
+    # No `…conduct.ingested` base is emitted, so this is the funnel counter.
+    assert not is_stat_submetric("ec.centralised_audit.conduct.ingested.count", known)
+
+
+def test_without_a_known_universe_the_suffix_rule_is_unchanged():
+    # The existing callers pass no universe; they must behave exactly as before.
+    assert is_stat_submetric("ec.centralised_audit.conduct.ingested.count")
+    assert is_stat_submetric("ec.svc.latency.max", ())
+
+
+def test_filter_keeps_real_count_metrics_when_given_the_known_universe():
+    ingested = "ec.centralised_audit.conduct.ingested.count"
+    latency = "ec.alerting_service.enrichment_latency"
+    registry = {
+        ingested: f"sum:{ingested}{{*}}.as_count()",
+        latency: f"avg:{latency}{{*}}",
+        f"{latency}.count": f"avg:{latency}.count{{*}}",
+    }
+    out = filter_queries(registry, parse_patterns("ec.*"), known=set(registry))
+    assert set(out) == {ingested, latency}
+    assert out[ingested] == f"sum:{ingested}{{*}}.as_count()"
+
+
+def test_the_known_universe_may_be_wider_than_the_registry_being_filtered():
+    # Selection is bounded (top-K) but the emitted-name universe is not; judging
+    # "is this generated?" off the shrunken registry would resurrect the bug.
+    latency = "ec.alerting_service.enrichment_latency"
+    registry = {f"{latency}.count": f"avg:{latency}.count{{*}}"}
+    out = filter_queries(
+        registry, parse_patterns("ec.*"), known={latency, f"{latency}.count"})
+    assert out == {}

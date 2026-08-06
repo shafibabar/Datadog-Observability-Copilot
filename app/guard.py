@@ -118,6 +118,7 @@ def evaluate(
     max_chars: int = DEFAULT_MAX_CHARS,
     classifier: Callable[[str], bool] | None = None,
     extra_vocabulary: tuple[str, ...] = (),
+    recognizer: Callable[[str], bool] | None = None,
 ) -> GuardVerdict:
     """Return a verdict for `message`.
 
@@ -129,6 +130,13 @@ def evaluate(
     `extra_vocabulary` = additional on-topic terms (e.g. a platform's known
     metric/log/trace/tenant/environment names from config) recognized in
     addition to the generic built-in vocabulary.
+    `recognizer(message) -> bool` = a zero-token Stage-1 fast-allow for messages
+    the platform can demonstrably answer — in practice, "this resolves to a
+    known question in the answerable-question catalog". Unlike vocabulary, it
+    cannot over-allow by accident: it says yes only to a question we hold a
+    curated answer for. It is consulted AFTER the injection check, so nothing
+    can be smuggled past that, and it never blocks — a False just falls through
+    to the normal path.
     """
     text = (message or "").strip()
 
@@ -144,6 +152,17 @@ def evaluate(
 
     if _is_on_topic(low, extra_vocabulary):
         return GuardVerdict(True, "ok")
+
+    # A message that resolves to a curated, answerable question is on-topic by
+    # construction — refusing it would be refusing the product's own use case.
+    # Defended like every other optional layer: a raising recognizer degrades to
+    # the normal path rather than deciding the verdict.
+    if recognizer is not None:
+        try:
+            if recognizer(text):
+                return GuardVerdict(True, "ok")
+        except Exception:  # noqa: BLE001 - a broken recognizer must not gate anything
+            pass
 
     if has_context and len(text.split()) <= _FOLLOWUP_MAX_WORDS:
         return GuardVerdict(True, "ok")

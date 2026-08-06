@@ -111,16 +111,20 @@ class ReasoningEngine:
         monitors_index: MonitorsIndex | None = None,
         vocabulary=None,
         knowledge=None,
+        catalog=(),
     ) -> None:
         self._source = source
         self._llm = llm
         self._history_limit = history_limit
         self._monitors_index = monitors_index
-        # EC domain knowledge (app.knowledge). Both optional and purely
+        # EC domain knowledge (app.knowledge). All optional and purely
         # additive: without them the engine builds exactly the prompt it built
-        # before this layer existed.
+        # before these layers existed.
         self._vocabulary = vocabulary
         self._knowledge = knowledge
+        # The answerable-question catalog: known questions mapped to the exact
+        # series that answer them.
+        self._catalog = tuple(catalog or ())
 
     def investigate(
         self,
@@ -146,6 +150,7 @@ class ReasoningEngine:
                 self._monitors_index or MonitorsIndex(monitors=[], dashboards=[], repo_path=""),
                 available=set(registry),
                 vocabulary=self._vocabulary,
+                catalog=self._catalog,
             )
         catalog, context = build_evidence_catalog(self._source, scope, metrics=selected)
         self._attribute(catalog)
@@ -225,6 +230,32 @@ class ReasoningEngine:
             ],
         )
 
+    def _playbook(self, question: str | None) -> str:
+        """The resolved-question block, when this question is a known one.
+
+        It carries three things the model cannot derive from the evidence
+        catalog alone: what kind of answer is wanted (a total, a ratio, a
+        latency), the exact series and aggregation that produce it, and which
+        series the playbook names that this platform does not emit. That last
+        one is why the block is built deterministically rather than asked for —
+        a missing leg of a comparison must not be quietly dropped from a
+        confident-sounding total.
+        """
+        if not self._catalog or not question:
+            return ""
+        try:
+            from app.knowledge.questions import match_question, match_unanswerable
+
+            available = set(self._source.list_metrics())
+            hit = (match_question(question, self._catalog, available)
+                   # A known question whose series this org does not emit. Saying
+                   # "we don't measure that" is a true answer; showing an adjacent
+                   # series and letting the number read as the answer is not.
+                   or match_unanswerable(question, self._catalog, available))
+        except Exception:  # pragma: no cover - defensive; the catalog is optional
+            return ""
+        return hit.describe() if hit else ""
+
     def _knowledge_context(self, question: str | None) -> str:
         """How this question maps onto the platform, plus anything the platform
         cannot actually answer.
@@ -234,13 +265,23 @@ class ReasoningEngine:
         alert monitor at all. Both blocks are omitted entirely when nothing
         resolved, so an unrecognised question costs no tokens.
         """
-        if self._vocabulary is None or not question:
+        if not question:
             return ""
+
+        blocks = []
+
+        # The catalog block leads: when the question is a known one, the model
+        # should read it as "compute this" rather than "investigate around this".
+        playbook = self._playbook(question)
+        if playbook:
+            blocks.append(playbook)
+
+        if self._vocabulary is None:
+            return "\n\n".join(blocks)
 
         from app.knowledge.gaps import detection_gaps
         from app.knowledge.interpret import interpret
 
-        blocks = []
         terms = interpret(question, self._vocabulary).describe()
         if terms:
             blocks.append(terms)

@@ -453,6 +453,15 @@ def _fake_discovery(monkeypatch, names):
     monkeypatch.setattr(dd, "discover_metric_names", lambda patterns, **kw: list(names))
 
 
+def _no_builtin(monkeypatch):
+    """Empty the committed built-in registry for specs that assert an EXACT
+    registry. Those specs are about discovery and namespace filtering; the 225
+    built-in EC metrics are a separate source with its own specs below."""
+    from app import copilot as copilot_module
+
+    monkeypatch.setattr(copilot_module, "_builtin_registry", lambda: ({}, ()))
+
+
 def _datadog_env(monkeypatch, namespaces="ec.*"):
     _clear(monkeypatch)
     monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
@@ -462,6 +471,7 @@ def _datadog_env(monkeypatch, namespaces="ec.*"):
 
 def test_build_source_registry_is_the_discovered_namespaced_metrics(monkeypatch):
     _datadog_env(monkeypatch)
+    _no_builtin(monkeypatch)
     _fake_discovery(
         monkeypatch,
         # …latency.max is a Datadog-generated sub-metric and must not enter the registry.
@@ -476,6 +486,7 @@ def test_build_source_registry_is_the_discovered_namespaced_metrics(monkeypatch)
 def test_build_source_drops_metrics_outside_the_namespaces(monkeypatch):
     # Even if a source hands back something off-namespace, the allowlist wins.
     _datadog_env(monkeypatch)
+    _no_builtin(monkeypatch)
     _fake_discovery(monkeypatch, ["ec.a", "system.cpu.user"])
     assert _build_source(Settings()).list_metrics() == ["ec.a"]
 
@@ -484,23 +495,67 @@ def test_namespaced_registry_never_falls_back_to_infra_defaults(monkeypatch):
     # Discovery failed / found nothing: "only ec.* is in scope" must NOT quietly
     # become "here are four system.* metrics instead".
     _datadog_env(monkeypatch)
+    _no_builtin(monkeypatch)
     _fake_discovery(monkeypatch, [])
     assert _build_source(Settings()).list_metrics() == []
 
 
-def test_without_namespaces_the_infra_defaults_still_apply(monkeypatch):
-    # Unconfigured behavior is unchanged.
-    _clear(monkeypatch)
-    monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
-    monkeypatch.setenv("DATADOG_ACCESS_TOKEN", "pat-xyz")
-    assert "system.cpu.user" in _build_source(Settings()).list_metrics()
-
-
 def test_explicit_metric_queries_survive_the_namespace_filter(monkeypatch):
     _datadog_env(monkeypatch)
+    _no_builtin(monkeypatch)
     monkeypatch.setenv("DATADOG_METRIC_QUERIES", '{"trace.latency":"p95:trace.latency{*}"}')
     _fake_discovery(monkeypatch, ["ec.a"])
     assert _build_source(Settings()).list_metrics() == ["ec.a", "trace.latency"]
+
+
+# --- the committed built-in registry, end to end ----------------------------
+# The org's 633 emitted metric names ship in the repo, so the Datadog source has
+# a real registry with NOTHING configured beyond a credential. This replaces the
+# illustrative system.* defaults as the zero-config baseline for this platform:
+# they were placeholder golden signals, never what this copilot investigates.
+
+def test_the_datadog_registry_is_populated_with_no_namespaces_configured(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("COPILOT_DATA_SOURCE", "datadog")
+    monkeypatch.setenv("DATADOG_ACCESS_TOKEN", "pat-xyz")
+    _fake_discovery(monkeypatch, [])
+    metrics = _build_source(Settings()).list_metrics()
+    assert "ec.centralised_audit.conduct.ingested.count" in metrics
+    assert len(metrics) > 150
+
+
+def test_the_registry_survives_discovery_failing_entirely(monkeypatch):
+    # The failure this exists for: a TLS-inspection proxy made discovery return
+    # [] silently, and the copilot had nothing to look at.
+    _datadog_env(monkeypatch)
+    _fake_discovery(monkeypatch, [])
+    metrics = _build_source(Settings()).list_metrics()
+    assert "ec.quota_manager.kpi_event_consumption_rate" in metrics
+    assert "system.cpu.user" not in metrics
+
+
+def test_the_builtin_registry_carries_shaped_aggregations(monkeypatch):
+    # A counter summed as a count, not averaged — "how many were ingested today"
+    # is a total. This is the whole reason builtin outranks discovery.
+    _datadog_env(monkeypatch)
+    _fake_discovery(monkeypatch, ["ec.centralised_audit.conduct.ingested.count"])
+    source = _build_source(Settings())
+    assert source._metric_queries["ec.centralised_audit.conduct.ingested.count"] == (
+        "sum:ec.centralised_audit.conduct.ingested.count{*}.as_count()")
+
+
+def test_generated_sub_metrics_stay_out_of_the_live_registry(monkeypatch):
+    _datadog_env(monkeypatch)
+    _fake_discovery(monkeypatch, [])
+    metrics = _build_source(Settings()).list_metrics()
+    assert "ec.alerting_service.enrichment_latency" in metrics
+    assert "ec.alerting_service.enrichment_latency.max" not in metrics
+
+
+def test_the_infra_defaults_remain_the_adapters_own_fallback():
+    # Unchanged contract at the adapter seam: no resolved registry (None) still
+    # means the broadly-present system.* signals.
+    assert "system.cpu.user" in LiveDatadogAdapter(metric_queries=None).list_metrics()
 
 
 def test_build_copilot_guard_vocabulary_learns_service_names_from_the_registry(monkeypatch):

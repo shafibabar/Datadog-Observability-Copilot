@@ -23,6 +23,15 @@ DEFAULT_TOP_K = 8
 KNOWLEDGE_WEIGHT = 12.0
 KNOWLEDGE_FLOOR = 5.0
 
+#: Weight for a metric named by a matched question-catalog entry. Above the
+#: knowledge layer's, because this is not an inference about which service the
+#: question concerns — it is a recorded statement that THIS series answers THIS
+#: question, with the aggregation to use. Nothing else in the resolver knows
+#: that. Later metrics in the entry decay only slightly: an entry that names
+#: five funnel stages means all five, not a favourite.
+CATALOG_WEIGHT = 30.0
+CATALOG_DECAY = 0.5
+
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 # Generic metric-name segments that shouldn't count as term matches on their own
@@ -41,10 +50,13 @@ def select_metrics(
     available: set[str],
     k: int = DEFAULT_TOP_K,
     vocabulary=None,
+    catalog=(),
 ) -> list[str]:
     """Select up to `k` metric names relevant to the question.
 
-    Scoring: the EC knowledge layer's candidates rank highest when a
+    Scoring: a matched question-catalog entry outranks everything, because it is
+    a recorded answer to this exact question rather than an inference about it.
+    Below that, the EC knowledge layer's candidates rank next when a
     `vocabulary` is supplied — it is the only source that maps everyday words
     ("sampler", "are we backed up?") onto services and monitors. Below that, an
     alias phrase appearing in the question is a strong signal for all its
@@ -54,8 +66,8 @@ def select_metrics(
     per service) so "is everything healthy?" still gets real telemetry. Only
     metrics in `available` are ever returned.
 
-    `vocabulary` is optional and purely additive: omitted, this behaves exactly
-    as it did before the knowledge layer existed.
+    `vocabulary` and `catalog` are optional and purely additive: omitted, this
+    behaves exactly as it did before those layers existed.
 
     `available` — the registry the data source can actually query — is the
     authority on what exists, NOT `index.metric_queries`. The Terraform repo is an
@@ -75,7 +87,14 @@ def select_metrics(
 
     scores: dict[str, float] = {}
 
-    # EC knowledge first: it resolves user words to services, monitors and
+    # A catalog hit is the strongest signal available: someone recorded that
+    # these exact series answer this exact question. Only its live metrics are
+    # returned — `match_question` has already dropped the ones this org's
+    # registry does not carry.
+    for rank, metric in enumerate(catalog_metrics(question, catalog, available)):
+        scores[metric] = scores.get(metric, 0.0) + CATALOG_WEIGHT - rank * CATALOG_DECAY
+
+    # EC knowledge next: it resolves user words to services, monitors and
     # lifecycle stages that no string match can reach. Its own ordering is
     # meaningful (monitor-named series lead), so weight decays down the list.
     for rank, metric in enumerate(_knowledge_candidates(question, vocabulary, available)):
@@ -112,6 +131,23 @@ def select_metrics(
     if ranked:
         return ranked[:k]
     return _golden_set(available, k)
+
+
+def catalog_metrics(question: str, catalog, available: set[str]) -> list[str]:
+    """The live metrics a matched question-catalog entry names, best first.
+
+    Imported lazily and defended the same way as the knowledge layer: a catalog
+    problem must degrade selection, never break it.
+    """
+    if not catalog or not available:
+        return []
+    try:
+        from app.knowledge.questions import match_question
+
+        hit = match_question(question, tuple(catalog), available)
+        return list(hit.metrics) if hit else []
+    except Exception:  # pragma: no cover - defensive; the catalog is optional
+        return []
 
 
 def _knowledge_candidates(question: str, vocabulary, available: set[str]) -> list[str]:

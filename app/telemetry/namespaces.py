@@ -57,9 +57,32 @@ _STAT_SUFFIXES = (
 )
 
 
-def is_stat_submetric(name: str) -> bool:
-    """True for a Datadog-generated statistical sub-metric (`….processing_time.max`)."""
-    return (name or "").lower().endswith(_STAT_SUFFIXES)
+def is_stat_submetric(name: str, known: Iterable[str] = ()) -> bool:
+    """True for a Datadog-generated statistical sub-metric (`….processing_time.max`).
+
+    The suffix alone is not proof, and getting this wrong is expensive in one
+    specific direction: EC's business-volume counters are genuinely named
+    `ec.centralised_audit.conduct.ingested.count` — 36 of them, the entire
+    surveillance funnel, and the single most valuable evidence for "how many
+    messages were ingested / qualified / sampled today". The suffix rule deleted
+    every one of them from the registry.
+
+    Given `known` — the full set of names the org actually emits — the two cases
+    separate exactly: Datadog generates `X.count` only *alongside* its base
+    metric `X`, so a suffixed name whose base is absent is a real metric. Pass
+    the widest name universe available, not the registry being filtered: a
+    bounded selection may not contain the base that proves the sibling generated.
+
+    With no `known` set the old suffix-only rule applies unchanged, so callers
+    that have no name universe keep their previous behaviour.
+    """
+    lowered = (name or "").lower()
+    if not lowered.endswith(_STAT_SUFFIXES):
+        return False
+    universe = {n.lower() for n in known}
+    if not universe:
+        return True
+    return lowered.rsplit(".", 1)[0] in universe
 
 
 def prefixes(patterns: tuple[str, ...]) -> tuple[str, ...]:
@@ -81,6 +104,7 @@ def filter_queries(
     registry: dict[str, str],
     patterns: tuple[str, ...],
     keep: Iterable[str] = (),
+    known: Iterable[str] = (),
 ) -> dict[str, str]:
     """Narrow a {metric_name: query} registry to the configured namespaces, also
     dropping Datadog's generated statistical sub-metrics.
@@ -90,13 +114,19 @@ def filter_queries(
     namespaces, and even if it's a `.95percentile`. Queries themselves are passed
     through untouched so the real aggregation (`sum:` / `.as_count()`) survives.
 
+    `known` is the set of names the org emits, used to tell a generated
+    sub-metric from a real one that happens to end in `.count` (see
+    `is_stat_submetric`). Omitted, the suffix-only rule applies as before.
+
     With no patterns the registry is returned unchanged — blank config must mean
     "change nothing".
     """
     if not patterns:
         return dict(registry)
     kept = set(keep)
+    universe = set(known)
     return {
         name: query for name, query in registry.items()
-        if name in kept or (matches(name, patterns) and not is_stat_submetric(name))
+        if name in kept
+        or (matches(name, patterns) and not is_stat_submetric(name, universe))
     }
